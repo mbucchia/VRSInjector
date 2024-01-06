@@ -25,9 +25,65 @@
 #include "Check.h"
 #include "Tracing.h"
 
+#pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3d12.lib")
 
 namespace {
+
+    // From DXSample framework.
+    void GetHardwareAdapter(IDXGIFactory1* pFactory, IDXGIAdapter1** ppAdapter, bool requestHighPerformanceAdapter) {
+        *ppAdapter = nullptr;
+
+        ComPtr<IDXGIAdapter1> adapter;
+
+        ComPtr<IDXGIFactory6> factory6;
+        if (SUCCEEDED(pFactory->QueryInterface(IID_PPV_ARGS(&factory6)))) {
+            for (UINT adapterIndex = 0; SUCCEEDED(factory6->EnumAdapterByGpuPreference(
+                     adapterIndex,
+                     requestHighPerformanceAdapter == true ? DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE
+                                                           : DXGI_GPU_PREFERENCE_UNSPECIFIED,
+                     IID_PPV_ARGS(&adapter)));
+                 ++adapterIndex) {
+                DXGI_ADAPTER_DESC1 desc;
+                adapter->GetDesc1(&desc);
+
+                if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) {
+                    // Don't select the Basic Render Driver adapter.
+                    // If you want a software adapter, pass in "/warp" on the command line.
+                    continue;
+                }
+
+                // Check to see whether the adapter supports Direct3D 12, but don't create the
+                // actual device yet.
+                if (SUCCEEDED(
+                        D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, _uuidof(ID3D12Device), nullptr))) {
+                    break;
+                }
+            }
+        }
+
+        if (adapter.Get() == nullptr) {
+            for (UINT adapterIndex = 0; SUCCEEDED(pFactory->EnumAdapters1(adapterIndex, &adapter)); ++adapterIndex) {
+                DXGI_ADAPTER_DESC1 desc;
+                adapter->GetDesc1(&desc);
+
+                if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) {
+                    // Don't select the Basic Render Driver adapter.
+                    // If you want a software adapter, pass in "/warp" on the command line.
+                    continue;
+                }
+
+                // Check to see whether the adapter supports Direct3D 12, but don't create the
+                // actual device yet.
+                if (SUCCEEDED(
+                        D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, _uuidof(ID3D12Device), nullptr))) {
+                    break;
+                }
+            }
+        }
+
+        *ppAdapter = adapter.Detach();
+    }
 
 #define DECLARE_DETOUR_FUNCTION(ReturnType, Callconv, FunctionName, ...)                                               \
     ReturnType(Callconv* original_##FunctionName)(##__VA_ARGS__) = nullptr;                                            \
@@ -104,16 +160,23 @@ namespace {
 namespace Injector {
 
     void InstallHooks() {
+        ComPtr<IDXGIFactory2> dxgiFactory;
+        CHECK_HRCMD(CreateDXGIFactory2(0, IID_PPV_ARGS(dxgiFactory.ReleaseAndGetAddressOf())));
+
+        ComPtr<IDXGIAdapter1> hardwareAdapter;
+        GetHardwareAdapter(dxgiFactory.Get(), &hardwareAdapter, true);
+
         // Hook to the command list's RSSetViewports(), where we will decide whether or not to inject VRS commands.
         ComPtr<ID3D12Device> device;
-        CHECK_HRCMD(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(device.ReleaseAndGetAddressOf())));
+        CHECK_HRCMD(D3D12CreateDevice(
+            hardwareAdapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(device.ReleaseAndGetAddressOf())));
 
         ComPtr<ID3D12CommandAllocator> commandAllocator;
         CHECK_HRCMD(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
                                                    IID_PPV_ARGS(commandAllocator.ReleaseAndGetAddressOf())));
 
         ComPtr<ID3D12GraphicsCommandList> commandList;
-        CHECK_HRCMD(device->CreateCommandList(1,
+        CHECK_HRCMD(device->CreateCommandList(0,
                                               D3D12_COMMAND_LIST_TYPE_DIRECT,
                                               commandAllocator.Get(),
                                               nullptr,
@@ -125,9 +188,6 @@ namespace Injector {
                            original_ID3D12GraphicsCommandList_RSSetViewports);
 
         // Hook to the swapchain presentation, where we will collect information on rendering.
-        ComPtr<IDXGIFactory2> dxgiFactory;
-        CHECK_HRCMD(CreateDXGIFactory2(0, IID_PPV_ARGS(dxgiFactory.ReleaseAndGetAddressOf())));
-
         D3D12_COMMAND_QUEUE_DESC commandQueueDesc{};
         commandQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         commandQueueDesc.NodeMask = 1;

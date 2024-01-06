@@ -24,6 +24,14 @@
 
 namespace Injector {
 
-    void InstallHooks();
+    struct IInjectionManager {
+        virtual ~IInjectionManager() = default;
 
-}
+        virtual void OnSetViewports(ID3D12CommandList* pCommandList, const D3D12_VIEWPORT& Viewport) = 0;
+        virtual void OnFramePresent(IDXGISwapChain* pSwapChain) = 0;
+    };
+
+    std::unique_ptr<IInjectionManager> CreateInjectionManager(); 
+    void InstallHooks(std::unique_ptr<IInjectionManager> Manager);
+
+} // namespace Injector

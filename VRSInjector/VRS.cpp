@@ -20,29 +20,34 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#pragma once
+#include "pch.h"
 
-#include <cassert>
-#include <future>
-#include <memory>
-#include <unordered_map>
+#include "Check.h"
+#include "Tracing.h"
+#include "VRS.h"
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#include <unknwn.h>
-#include <wrl.h>
+namespace {
 
-using Microsoft::WRL::ComPtr;
+    using namespace VRS;
 
-#include <traceloggingactivity.h>
-#include <traceloggingprovider.h>
+    struct CommandManager : ICommandManager {
+        CommandManager(ID3D12Device* Device) : m_Device(Device) {
+        }
 
-#include <dxgi1_6.h>
-#include <d3d12.h>
-#include <d3dx12.h>
+        void Enable(ID3D12CommandList* pCommandList, const D3D12_VIEWPORT& Viewport) override {
+        }
 
-#define FMT_HEADER_ONLY
-#include <fmt/format.h>
+        void Disable(ID3D12CommandList* pCommandList) override {
+        }
 
-#include <detours.h>
+        ComPtr<ID3D12Device> m_Device;
+    };
+
+}
+
+namespace VRS {
+
+    std::unique_ptr<ICommandManager> CreateCommandManager(ID3D12Device* Device) {
+        return std::make_unique<CommandManager>(Device);
+    }
+}

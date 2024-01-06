@@ -22,27 +22,15 @@
 
 #pragma once
 
-#include <cassert>
-#include <future>
-#include <memory>
-#include <unordered_map>
+namespace VRS {
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#include <unknwn.h>
-#include <wrl.h>
+    struct ICommandManager {
+        virtual ~ICommandManager() = default;
 
-using Microsoft::WRL::ComPtr;
+        virtual void Enable(ID3D12CommandList* pCommandList, const D3D12_VIEWPORT& Viewport) = 0;
+        virtual void Disable(ID3D12CommandList* pCommandList) = 0;
+    };
 
-#include <traceloggingactivity.h>
-#include <traceloggingprovider.h>
+    std::unique_ptr<ICommandManager> CreateCommandManager(ID3D12Device* Device);
 
-#include <dxgi1_6.h>
-#include <d3d12.h>
-#include <d3dx12.h>
-
-#define FMT_HEADER_ONLY
-#include <fmt/format.h>
-
-#include <detours.h>
+} // namespace VRS

@@ -38,7 +38,7 @@ namespace {
     std::future<void> g_deferredHook;
 
     void DeferredHooking() {
-        Injector::InstallHooks();
+        Injector::InstallHooks(std::move(Injector::CreateInjectionManager()));
     }
 
 } // namespace

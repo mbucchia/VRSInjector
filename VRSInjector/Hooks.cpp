@@ -23,6 +23,7 @@
 #include "pch.h"
 
 #include "Check.h"
+#include "Injector.h"
 #include "Tracing.h"
 
 #pragma comment(lib, "dxgi.lib")
@@ -108,6 +109,8 @@ namespace {
         DetourTransactionCommit();
     }
 
+    std::unique_ptr<Injector::IInjectionManager> g_InjectionManager;
+
     DECLARE_DETOUR_FUNCTION(void,
                             STDMETHODCALLTYPE,
                             ID3D12GraphicsCommandList_RSSetViewports,
@@ -135,6 +138,10 @@ namespace {
         assert(original_ID3D12GraphicsCommandList_RSSetViewports);
         original_ID3D12GraphicsCommandList_RSSetViewports(pCommandList, NumViewports, pViewports);
 
+        // Invoke the hook after the state has been set on the command list.
+        assert(g_InjectionManager);
+        g_InjectionManager->OnSetViewports(pCommandList, NumViewports > 0 ? pViewports[0] : D3D12_VIEWPORT{});
+
         TraceLoggingWriteStop(local, "ID3D12GraphicsCommandList_RSSetViewports");
     }
 
@@ -146,6 +153,10 @@ namespace {
                                TLPArg(pSwapChain, "SwapChain"),
                                TLArg(SyncInterval, "SyncInterval"),
                                TLArg(Flags, "Flags"));
+
+        // Invoke the hook prior to presenting, in case we wish to enqueue more work before any v-sync.
+        assert(g_InjectionManager);
+        g_InjectionManager->OnFramePresent(pSwapChain);
 
         assert(original_IDXGISwapChain_Present);
         const HRESULT result = original_IDXGISwapChain_Present(pSwapChain, SyncInterval, Flags);
@@ -159,7 +170,7 @@ namespace {
 
 namespace Injector {
 
-    void InstallHooks() {
+    void InstallHooks(std::unique_ptr<IInjectionManager> Manager) {
         ComPtr<IDXGIFactory2> dxgiFactory;
         CHECK_HRCMD(CreateDXGIFactory2(0, IID_PPV_ARGS(dxgiFactory.ReleaseAndGetAddressOf())));
 
@@ -194,22 +205,24 @@ namespace Injector {
         ComPtr<ID3D12CommandQueue> commandQueue;
         CHECK_HRCMD(device->CreateCommandQueue(&commandQueueDesc, IID_PPV_ARGS(commandQueue.ReleaseAndGetAddressOf())));
 
-        DXGI_SWAP_CHAIN_DESC1 swapchainDesc{};
-        swapchainDesc.BufferCount = 2;
-        swapchainDesc.Width = 128;
-        swapchainDesc.Height = 128;
-        swapchainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        swapchainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-        swapchainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-        swapchainDesc.SampleDesc.Count = 1;
+        DXGI_SWAP_CHAIN_DESC1 swapChainDesc{};
+        swapChainDesc.BufferCount = 2;
+        swapChainDesc.Width = 128;
+        swapChainDesc.Height = 128;
+        swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        swapChainDesc.SampleDesc.Count = 1;
         ComPtr<IDXGISwapChain1> dxgiSwapchain;
         CHECK_HRCMD(dxgiFactory->CreateSwapChainForComposition(
-            commandQueue.Get(), &swapchainDesc, nullptr, dxgiSwapchain.ReleaseAndGetAddressOf()));
+            commandQueue.Get(), &swapChainDesc, nullptr, dxgiSwapchain.ReleaseAndGetAddressOf()));
 
         DetourMethodAttach(dxgiSwapchain.Get(),
                            8, // Present()
                            hooked_IDXGISwapChain_Present,
                            original_IDXGISwapChain_Present);
+
+        g_InjectionManager = std::move(Manager);
     }
 
 } // namespace Injector

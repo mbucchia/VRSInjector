@@ -4,6 +4,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 VisualStudioVersion = 17.8.34330.188
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "VRSInjector", "VRSInjector\VRSInjector.vcxproj", "{CE1AD79D-3F12-4A3B-BA3E-ACA32735B467}"
+	ProjectSection(ProjectDependencies) = postProject
+		{3FC193D0-7E4E-4918-8431-D67391EE4145} = {3FC193D0-7E4E-4918-8431-D67391EE4145}
+	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Files", "Solution Files", "{CF0C6CA2-D27C-4C03-9BCC-C571A47B9F46}"
 	ProjectSection(SolutionItems) = preProject
@@ -11,6 +14,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Files", "Solution 
 		LICENSE = LICENSE
 		README.md = README.md
 	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "TestApps", "TestApps", "{C59525C7-9F6E-4DC8-A01C-9B791AB3A6BB}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "D3D12Multithreading", "DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\D3D12Multithreading.vcxproj", "{3FC193D0-7E4E-4918-8431-D67391EE4145}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -28,9 +35,20 @@ Global
 		{CE1AD79D-3F12-4A3B-BA3E-ACA32735B467}.Release|x64.Build.0 = Release|x64
 		{CE1AD79D-3F12-4A3B-BA3E-ACA32735B467}.Release|x86.ActiveCfg = Release|Win32
 		{CE1AD79D-3F12-4A3B-BA3E-ACA32735B467}.Release|x86.Build.0 = Release|Win32
+		{3FC193D0-7E4E-4918-8431-D67391EE4145}.Debug|x64.ActiveCfg = Debug|x64
+		{3FC193D0-7E4E-4918-8431-D67391EE4145}.Debug|x64.Build.0 = Debug|x64
+		{3FC193D0-7E4E-4918-8431-D67391EE4145}.Debug|x86.ActiveCfg = Debug|x64
+		{3FC193D0-7E4E-4918-8431-D67391EE4145}.Debug|x86.Build.0 = Debug|x64
+		{3FC193D0-7E4E-4918-8431-D67391EE4145}.Release|x64.ActiveCfg = Release|x64
+		{3FC193D0-7E4E-4918-8431-D67391EE4145}.Release|x64.Build.0 = Release|x64
+		{3FC193D0-7E4E-4918-8431-D67391EE4145}.Release|x86.ActiveCfg = Release|x64
+		{3FC193D0-7E4E-4918-8431-D67391EE4145}.Release|x86.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{3FC193D0-7E4E-4918-8431-D67391EE4145} = {C59525C7-9F6E-4DC8-A01C-9B791AB3A6BB}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {3EC4998D-0BF6-4122-A656-C014548EF67B}

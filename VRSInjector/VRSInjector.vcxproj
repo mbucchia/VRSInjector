@@ -104,6 +104,13 @@
       <EnableUAC>false</EnableUAC>
       <ModuleDefinitionFile>module.def</ModuleDefinitionFile>
     </Link>
+    <PostBuildEvent>
+      <Command>copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
+$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Message>Preparing TestApps...</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -127,6 +134,13 @@
       <EnableUAC>false</EnableUAC>
       <ModuleDefinitionFile>module.def</ModuleDefinitionFile>
     </Link>
+    <PostBuildEvent>
+      <Command>copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
+$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Message>Preparing TestApps...</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -146,6 +160,13 @@
       <EnableUAC>false</EnableUAC>
       <ModuleDefinitionFile>module.def</ModuleDefinitionFile>
     </Link>
+    <PostBuildEvent>
+      <Command>copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
+$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Message>Preparing TestApps...</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -169,6 +190,13 @@
       <EnableUAC>false</EnableUAC>
       <ModuleDefinitionFile>module.def</ModuleDefinitionFile>
     </Link>
+    <PostBuildEvent>
+      <Command>copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
+$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Message>Preparing TestApps...</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="Check.h" />

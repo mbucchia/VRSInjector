@@ -1,3 +1,6 @@
 [submodule "VRSInjector/fmt"]
 	path = VRSInjector/fmt
 	url = https://github.com/fmtlib/fmt.git
+[submodule "DirectX-Graphics-Samples"]
+	path = DirectX-Graphics-Samples
+	url = https://github.com/microsoft/DirectX-Graphics-Samples.git

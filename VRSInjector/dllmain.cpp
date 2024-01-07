@@ -38,6 +38,11 @@ namespace {
     std::future<void> g_deferredHook;
 
     void DeferredHooking() {
+#ifdef _DEBUG
+        // Adding a small delay, seems to avoid PIX crashing.
+        using namespace std::chrono_literals;
+        std::this_thread::sleep_for(1s);
+#endif
         Injector::InstallHooks(std::move(Injector::CreateInjectionManager()));
     }
 

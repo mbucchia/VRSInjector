@@ -171,6 +171,9 @@ namespace {
 namespace Injector {
 
     void InstallHooks(std::unique_ptr<IInjectionManager> Manager) {
+        TraceLocalActivity(local);
+        TraceLoggingWriteStart(local, "InstallHooks");
+
         ComPtr<IDXGIFactory2> dxgiFactory;
         CHECK_HRCMD(CreateDXGIFactory2(0, IID_PPV_ARGS(dxgiFactory.ReleaseAndGetAddressOf())));
 
@@ -193,6 +196,7 @@ namespace Injector {
                                               nullptr,
                                               IID_PPV_ARGS(commandList.ReleaseAndGetAddressOf())));
 
+        TraceLoggingWriteTagged(local, "InstallHooks_Detour_RSViewports", TLPArg(commandList.Get(), "CommandList"));
         DetourMethodAttach(commandList.Get(),
                            21, // RSSetViewports()
                            hooked_ID3D12GraphicsCommandList_RSSetViewports,
@@ -217,12 +221,15 @@ namespace Injector {
         CHECK_HRCMD(dxgiFactory->CreateSwapChainForComposition(
             commandQueue.Get(), &swapChainDesc, nullptr, dxgiSwapchain.ReleaseAndGetAddressOf()));
 
+        TraceLoggingWriteTagged(local, "InstallHooks_Detour_Preset", TLPArg(dxgiSwapchain.Get(), "DXGISwapchain"));
         DetourMethodAttach(dxgiSwapchain.Get(),
                            8, // Present()
                            hooked_IDXGISwapChain_Present,
                            original_IDXGISwapChain_Present);
 
         g_InjectionManager = std::move(Manager);
+
+        TraceLoggingWriteStop(local, "InstallHooks");
     }
 
 } // namespace Injector

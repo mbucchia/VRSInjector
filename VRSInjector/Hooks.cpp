@@ -174,6 +174,8 @@ namespace Injector {
         TraceLocalActivity(local);
         TraceLoggingWriteStart(local, "InstallHooks");
 
+        g_InjectionManager = std::move(Manager);
+
         ComPtr<IDXGIFactory2> dxgiFactory;
         CHECK_HRCMD(CreateDXGIFactory2(0, IID_PPV_ARGS(dxgiFactory.ReleaseAndGetAddressOf())));
 
@@ -226,8 +228,6 @@ namespace Injector {
                            8, // Present()
                            hooked_IDXGISwapChain_Present,
                            original_IDXGISwapChain_Present);
-
-        g_InjectionManager = std::move(Manager);
 
         TraceLoggingWriteStop(local, "InstallHooks");
     }

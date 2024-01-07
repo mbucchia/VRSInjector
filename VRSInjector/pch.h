@@ -23,6 +23,7 @@
 #pragma once
 
 #include <cassert>
+#include <deque>
 #include <future>
 #include <memory>
 #include <unordered_map>

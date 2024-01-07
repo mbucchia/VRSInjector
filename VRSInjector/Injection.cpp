@@ -105,10 +105,24 @@ namespace {
                 TraceLoggingWriteTagged(local, "OnFramePresent_GetBuffer", TLArg(result, "Error"));
             }
 
+            {
+                static bool wasKeyPressed = false;
+                const bool isKeyPressed =
+                    GetAsyncKeyState(VK_MENU) < 0 && GetAsyncKeyState('F') < 0 && GetAsyncKeyState('R') < 0;
+                if (isKeyPressed && !wasKeyPressed) {
+                    m_Enabled = !m_Enabled;
+                }
+                wasKeyPressed = isKeyPressed;
+            }
+
             TraceLoggingWriteStop(local, "OnFramePresent");
         }
 
         bool IsViewportEligible(const Resolution& PresentResolution, const D3D12_VIEWPORT& Viewport) const {
+            if (!m_Enabled) {
+                return false;
+            }
+
             if (!Viewport.Width || !Viewport.Height) {
                 return false;
             }
@@ -121,6 +135,7 @@ namespace {
                    scaleOfTarget >= 0.32; // DLSS/FSR "Ultra Performance" might render at 33% of the final resolution.
         }
 
+        bool m_Enabled{true};
         std::unordered_map<ID3D12Device*, RenderingContext> m_Contexts;
     };
 

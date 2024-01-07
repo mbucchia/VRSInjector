@@ -39,6 +39,8 @@ using Microsoft::WRL::ComPtr;
 #include <traceloggingactivity.h>
 #include <traceloggingprovider.h>
 
+#include <wil/resource.h>
+
 #include <dxgi1_6.h>
 #include <d3d12.h>
 #include <d3dx12.h>

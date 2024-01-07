@@ -90,11 +90,22 @@ namespace {
             commandQueueDesc.NodeMask = 1;
             CHECK_HRCMD(
                 m_Device->CreateCommandQueue(&commandQueueDesc, IID_PPV_ARGS(m_CommandQueue.ReleaseAndGetAddressOf())));
+            m_CommandQueue->SetName(L"Shading Rate Creation Command Queue");
 
             CHECK_HRCMD(m_Device->CreateFence(
                 0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_CommandListPoolFence.ReleaseAndGetAddressOf())));
+            m_CommandListPoolFence->SetName(L"Shading Rate Creation Fence");
 
             TraceLoggingWriteStop(local, "VRSCreate");
+        }
+
+        ~CommandManager() override {
+            if (m_CommandListPoolFenceValue) {
+                wil::unique_handle handle;
+                *handle.put() = CreateEventEx(nullptr, L"Destruction Fence", 0, EVENT_ALL_ACCESS);
+                CHECK_HRCMD(m_CommandListPoolFence->SetEventOnCompletion(m_CommandListPoolFenceValue, handle.get()));
+                WaitForSingleObject(handle.get(), INFINITE);
+            }
         }
 
         void Enable(ID3D12CommandList* pCommandList, const D3D12_VIEWPORT& Viewport) override {
@@ -109,20 +120,22 @@ namespace {
                     Align(static_cast<UINT>(Viewport.Height + DBL_EPSILON), m_TileSize) / m_TileSize};
 
                 auto it = m_ShadingRateMaps.find(shadingRateMapResolution);
-                if (it != m_ShadingRateMaps.end() && IsCommandListCompleted(it->second.CompletedFenceValue)) {
-                    ComPtr<ID3D12GraphicsCommandList5> vrsCommandList;
-                    CHECK_HRCMD(pCommandList->QueryInterface(vrsCommandList.GetAddressOf()));
+                if (it != m_ShadingRateMaps.end()) {
+                    if (IsCommandListCompleted(it->second.CompletedFenceValue)) {
+                        ComPtr<ID3D12GraphicsCommandList5> vrsCommandList;
+                        CHECK_HRCMD(pCommandList->QueryInterface(vrsCommandList.GetAddressOf()));
 
-                    // Release the upload buffer.
-                    it->second.ShadingRateUpload.Reset();
+                        // Release the upload buffer.
+                        it->second.ShadingRateUpload.Reset();
 
-                    // RSSetShadingRate() function sets both the combiners and the per-drawcall shading rate.
-                    // We set to 1X1 for all sources and all combiners to MAX, so that the coarsest wins (per-drawcall,
-                    // per-primitive, VRS surface).
-                    static const D3D12_SHADING_RATE_COMBINER combiners[D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT] = {
-                        D3D12_SHADING_RATE_COMBINER_MAX, D3D12_SHADING_RATE_COMBINER_MAX};
-                    vrsCommandList->RSSetShadingRate(D3D12_SHADING_RATE_1X1, combiners);
-                    vrsCommandList->RSSetShadingRateImage(it->second.ShadingRateTexture.Get());
+                        // RSSetShadingRate() function sets both the combiners and the per-drawcall shading rate.
+                        // We set to 1X1 for all sources and all combiners to MAX, so that the coarsest wins
+                        // (per-drawcall, per-primitive, VRS surface).
+                        static const D3D12_SHADING_RATE_COMBINER combiners[D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT] = {
+                            D3D12_SHADING_RATE_COMBINER_MAX, D3D12_SHADING_RATE_COMBINER_MAX};
+                        vrsCommandList->RSSetShadingRate(D3D12_SHADING_RATE_1X1, combiners);
+                        vrsCommandList->RSSetShadingRateImage(it->second.ShadingRateTexture.Get());
+                    }
                 } else {
                     // Request the shading rate map to be generated for a future pass.
                     RequestShadingRateMap(shadingRateMapResolution);
@@ -163,9 +176,10 @@ namespace {
                 &defaultHeap,
                 D3D12_HEAP_FLAG_NONE,
                 &textureDesc,
-                D3D12_RESOURCE_STATE_COMMON,
+                D3D12_RESOURCE_STATE_COPY_DEST,
                 nullptr,
                 IID_PPV_ARGS(newShadingRateMap.ShadingRateTexture.ReleaseAndGetAddressOf())));
+            newShadingRateMap.ShadingRateTexture->SetName(L"Shading Rate Texture");
 
             // Create an upload buffer.
             const D3D12_HEAP_PROPERTIES uploadHeap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
@@ -215,7 +229,7 @@ namespace {
             // Transition to the correct state for use with VRS.
             const D3D12_RESOURCE_BARRIER barrier =
                 CD3DX12_RESOURCE_BARRIER::Transition(newShadingRateMap.ShadingRateTexture.Get(),
-                                                     D3D12_RESOURCE_STATE_COMMON,
+                                                     D3D12_RESOURCE_STATE_COPY_DEST,
                                                      D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE);
             commandList.CommandList->ResourceBarrier(1, &barrier);
 
@@ -287,6 +301,7 @@ namespace {
                 m_AvailableCommandList.pop_front();
 
                 // Reset the command list before reuse.
+                CHECK_HRCMD(commandList.Allocator->Reset());
                 CHECK_HRCMD(commandList.CommandList->Reset(commandList.Allocator.Get(), nullptr));
             }
             return commandList;
@@ -298,7 +313,7 @@ namespace {
             CHECK_HRCMD(CommandList.CommandList->Close());
             m_CommandQueue->ExecuteCommandLists(
                 1, reinterpret_cast<ID3D12CommandList**>(CommandList.CommandList.GetAddressOf()));
-            CommandList.CompletedFenceValue = m_CommandListPoolFenceValue + 1;
+            CommandList.CompletedFenceValue = ++m_CommandListPoolFenceValue;
             m_CommandQueue->Signal(m_CommandListPoolFence.Get(), CommandList.CompletedFenceValue);
             m_PendingCommandList.push_back(std::move(CommandList));
 

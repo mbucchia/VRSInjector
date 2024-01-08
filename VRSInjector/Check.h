@@ -22,6 +22,8 @@
 
 #pragma once
 
+#include "Tracing.h"
+
 namespace Check {
 
 #define CHK_STRINGIFY(x) #x
@@ -29,24 +31,32 @@ namespace Check {
 #define FILE_AND_LINE __FILE__ ":" TOSTRING(__LINE__)
 
 #define CHECK_HRCMD(cmd) Check::CheckHResult(cmd, #cmd, FILE_AND_LINE)
+#define CHECK_MSG(exp, msg)                                                                                            \
+    {                                                                                                                  \
+        if (!(exp)) {                                                                                                  \
+            Check::Throw(msg, #exp, FILE_AND_LINE);                                                                    \
+        }                                                                                                              \
+    }
 
     [[noreturn]] inline void Throw(std::string failureMessage,
                                    const char* originator = nullptr,
                                    const char* sourceLocation = nullptr) {
         if (originator != nullptr) {
-            failureMessage += fmt::format("\n    Origin: %s", originator);
+            failureMessage += fmt::format("\n    Origin: {}", originator);
         }
         if (sourceLocation != nullptr) {
-            failureMessage += fmt::format("\n    Source: %s", sourceLocation);
+            failureMessage += fmt::format("\n    Source: {}", sourceLocation);
         }
 
+        TraceLoggingWrite(Tracing::g_traceProvider, "FatalError", TLArg(failureMessage.c_str(), "Message"));
+        OutputDebugStringA(failureMessage.c_str());
         throw std::logic_error(failureMessage);
     }
 
     [[noreturn]] inline void ThrowHResult(HRESULT hr,
                                           const char* originator = nullptr,
                                           const char* sourceLocation = nullptr) {
-        Throw(fmt::format("HRESULT failure [%x]", hr), originator, sourceLocation);
+        Throw(fmt::format("HRESULT failure {:x}", hr), originator, sourceLocation);
     }
 
     inline HRESULT CheckHResult(HRESULT hr, const char* originator = nullptr, const char* sourceLocation = nullptr) {

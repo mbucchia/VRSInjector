@@ -29,6 +29,9 @@ namespace VRS {
 
         virtual void Enable(ID3D12CommandList* pCommandList, const D3D12_VIEWPORT& Viewport) = 0;
         virtual void Disable(ID3D12CommandList* pCommandList) = 0;
+
+        virtual void SyncQueue(ID3D12CommandQueue* pCommandQueue,
+                               const std::vector<ID3D12CommandList*>& CommandLists) = 0;
     };
 
     std::unique_ptr<ICommandManager> CreateCommandManager(ID3D12Device* Device);

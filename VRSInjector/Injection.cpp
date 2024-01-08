@@ -64,6 +64,24 @@ namespace {
             TraceLoggingWriteStop(local, "OnSetViewports");
         }
 
+        void OnExecuteCommandLists(ID3D12CommandQueue* pCommandQueue,
+                                   const std::vector<ID3D12CommandList*>& CommandLists) override {
+            TraceLocalActivity(local);
+            TraceLoggingWriteStart(local, "OnExecuteCommandLists", TLPArg(pCommandQueue, "CommandQueue"));
+
+            ComPtr<ID3D12Device> device;
+            CHECK_HRCMD(pCommandQueue->GetDevice(IID_PPV_ARGS(device.ReleaseAndGetAddressOf())));
+
+            auto it = m_Contexts.find(device.Get());
+            if (it != m_Contexts.end()) {
+                VRS::ICommandManager* const commandManager = it->second.CommandManager.get();
+
+                commandManager->SyncQueue(pCommandQueue, CommandLists);
+            }
+
+            TraceLoggingWriteStop(local, "OnExecuteCommandLists");
+        }
+
         void OnFramePresent(IDXGISwapChain* pSwapChain) override {
             TraceLocalActivity(local);
             TraceLoggingWriteStart(local, "OnFramePresent", TLPArg(pSwapChain, "SwapChain"));

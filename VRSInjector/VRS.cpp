@@ -113,8 +113,6 @@ namespace {
             TraceLoggingWriteStart(local, "VRSEnable", TLPArg(pCommandList, "CommandList"));
 
             if (m_Device) {
-                std::unique_lock lock(m_ShadingRateMapsMutex);
-
                 const TiledResolution shadingRateMapResolution{
                     Align(static_cast<UINT>(Viewport.Width + DBL_EPSILON), m_TileSize) / m_TileSize,
                     Align(static_cast<UINT>(Viewport.Height + DBL_EPSILON), m_TileSize) / m_TileSize};
@@ -123,30 +121,45 @@ namespace {
                                         TLArg(shadingRateMapResolution.Width, "TiledWidth"),
                                         TLArg(shadingRateMapResolution.Height, "TiledHeight"));
 
-                auto it = m_ShadingRateMaps.find(shadingRateMapResolution);
-                if (it != m_ShadingRateMaps.end()) {
-                    if (IsCommandListCompleted(it->second.CompletedFenceValue)) {
-                        ComPtr<ID3D12GraphicsCommandList5> vrsCommandList;
-                        CHECK_HRCMD(pCommandList->QueryInterface(vrsCommandList.GetAddressOf()));
+                bool skipDependency = false;
+                ShadingRateMap shadingRateMap{};
+                {
+                    std::unique_lock lock(m_ShadingRateMapsMutex);
 
-                        // Release the upload buffer.
-                        it->second.ShadingRateUpload.Reset();
+                    auto it = m_ShadingRateMaps.find(shadingRateMapResolution);
+                    if (it != m_ShadingRateMaps.end()) {
+                        shadingRateMap = it->second;
+                        if (IsCommandListCompleted(shadingRateMap.CompletedFenceValue)) {
+                            // Release the upload buffer.
+                            it->second.ShadingRateUpload.Reset();
 
-                        // RSSetShadingRate() function sets both the combiners and the per-drawcall shading rate.
-                        // We set to 1X1 for all sources and all combiners to MAX, so that the coarsest wins
-                        // (per-drawcall, per-primitive, VRS surface).
-                        static const D3D12_SHADING_RATE_COMBINER combiners[D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT] = {
-                            D3D12_SHADING_RATE_COMBINER_MAX, D3D12_SHADING_RATE_COMBINER_MAX};
-                        vrsCommandList->RSSetShadingRate(D3D12_SHADING_RATE_1X1, combiners);
-                        vrsCommandList->RSSetShadingRateImage(it->second.ShadingRateTexture.Get());
+                            // No need to create a dependency on the GPU.
+                            skipDependency = true;
+                        }
+                        TraceLoggingWriteTagged(local, "VRSEnable_Reuse", TLArg(!skipDependency, "NeedDependency"));
+
                     } else {
-                        // The shading rate map isn't ready for use yet.
-                        TraceLoggingWriteTagged(local, "VRSEnable_NotReady");
+                        // Request the shading rate map to be generated.
+                        shadingRateMap = RequestShadingRateMap(shadingRateMapResolution);
                     }
-                } else {
-                    // Request the shading rate map to be generated for a future pass.
-                    TraceLoggingWriteTagged(local, "VRSEnable_Request");
-                    RequestShadingRateMap(shadingRateMapResolution);
+
+                    ComPtr<ID3D12GraphicsCommandList5> vrsCommandList;
+                    CHECK_HRCMD(pCommandList->QueryInterface(vrsCommandList.GetAddressOf()));
+
+                    // RSSetShadingRate() function sets both the combiners and the per-drawcall shading rate.
+                    // We set to 1X1 for all sources and all combiners to MAX, so that the coarsest wins
+                    // (per-drawcall, per-primitive, VRS surface).
+                    static const D3D12_SHADING_RATE_COMBINER combiners[D3D12_RS_SET_SHADING_RATE_COMBINER_COUNT] = {
+                        D3D12_SHADING_RATE_COMBINER_MAX, D3D12_SHADING_RATE_COMBINER_MAX};
+                    vrsCommandList->RSSetShadingRate(D3D12_SHADING_RATE_1X1, combiners);
+                    vrsCommandList->RSSetShadingRateImage(shadingRateMap.ShadingRateTexture.Get());
+                }
+
+                if (!skipDependency) {
+                    std::unique_lock lock(m_CommandListDependenciesMutex);
+
+                    // Add a dependency for command list submission.
+                    m_CommandListDependencies.insert_or_assign(pCommandList, shadingRateMap.CompletedFenceValue);
                 }
             } else {
                 TraceLoggingWriteTagged(local, "VRSEnable_NotSupported");
@@ -172,7 +185,32 @@ namespace {
             TraceLoggingWriteStop(local, "VRSDisable");
         }
 
-        void RequestShadingRateMap(const TiledResolution& Resolution) {
+        void SyncQueue(ID3D12CommandQueue* pCommandQueue,
+                       const std::vector<ID3D12CommandList*>& CommandLists) override {
+            TraceLocalActivity(local);
+            TraceLoggingWriteStart(local, "SyncQueue", TLPArg(pCommandQueue, "CommandQueue"));
+
+            std::unique_lock lock(m_CommandListDependenciesMutex);
+
+            for (const auto& commandList : CommandLists) {
+                auto it = m_CommandListDependencies.find(commandList);
+                if (it != m_CommandListDependencies.end()) {
+                    const uint64_t fenceValue = it->second;
+
+                    // Insert a wait to ensure the shading rate map is ready for use.
+                    TraceLoggingWriteTagged(
+                        local, "SyncQueue_Wait", TLPArg(commandList, "CommandList"), TLArg(fenceValue, "FenceValue"));
+                    pCommandQueue->Wait(m_CommandListPoolFence.Get(), fenceValue);
+
+                    // Retire the dependency.
+                    m_CommandListDependencies.erase(it);
+                }
+            }
+
+            TraceLoggingWriteStop(local, "SyncQueue", TLPArg(pCommandQueue, "CommandQueue"));
+        }
+
+        ShadingRateMap RequestShadingRateMap(const TiledResolution& Resolution) {
             TraceLocalActivity(local);
             TraceLoggingWriteStart(local,
                                    "VRSCreateShadingRateMap",
@@ -256,10 +294,13 @@ namespace {
                                                      D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE);
             commandList.CommandList->ResourceBarrier(1, &barrier);
 
-            const uint64_t CompletedFenceValue = newShadingRateMap.CompletedFenceValue = SubmitCommandList(commandList);
-            m_ShadingRateMaps.insert_or_assign(Resolution, std::move(newShadingRateMap));
+            newShadingRateMap.CompletedFenceValue = SubmitCommandList(commandList);
+            m_ShadingRateMaps.insert_or_assign(Resolution, newShadingRateMap);
 
-            TraceLoggingWriteStop(local, "VRSCreateShadingRateMap", TLArg(CompletedFenceValue, "CompletedFenceValue"));
+            TraceLoggingWriteStop(
+                local, "VRSCreateShadingRateMap", TLArg(newShadingRateMap.CompletedFenceValue, "CompletedFenceValue"));
+
+            return newShadingRateMap;
         }
 
         void GenerateFoveationPattern(std::vector<uint8_t>& Pattern,
@@ -336,6 +377,7 @@ namespace {
             std::unique_lock lock(m_CommandListPoolMutex);
 
             CHECK_HRCMD(CommandList.CommandList->Close());
+            // TODO: This call goes through the Detoured version, which causes unwanted tracing.
             m_CommandQueue->ExecuteCommandLists(
                 1, reinterpret_cast<ID3D12CommandList**>(CommandList.CommandList.GetAddressOf()));
             CommandList.CompletedFenceValue = ++m_CommandListPoolFenceValue;
@@ -355,6 +397,9 @@ namespace {
         std::mutex m_ShadingRateMapsMutex;
         std::unordered_map<TiledResolution, ShadingRateMap, TiledResolution> m_ShadingRateMaps;
         UINT m_TileSize{0};
+
+        std::mutex m_CommandListDependenciesMutex;
+        std::unordered_map<ID3D12CommandList*, uint64_t> m_CommandListDependencies;
 
         std::mutex m_CommandListPoolMutex;
         std::deque<D3D12ReusableCommandList> m_AvailableCommandList;

@@ -145,6 +145,36 @@ namespace {
         TraceLoggingWriteStop(local, "ID3D12GraphicsCommandList_RSSetViewports");
     }
 
+    DECLARE_DETOUR_FUNCTION(void,
+                            STDMETHODCALLTYPE,
+                            ID3D12CommandQueue_ExecuteCommandLists,
+                            ID3D12CommandQueue* pCommandQueue,
+                            UINT NumCommandLists,
+                            ID3D12CommandList* const* ppCommandLists) {
+        TraceLocalActivity(local);
+        TraceLoggingWriteStart(local,
+                               "ID3D12CommandQueue_ExecuteCommandLists",
+                               TLPArg(pCommandQueue, "CommandQueue"),
+                               TLArg(NumCommandLists, "NumCommandLists"));
+
+        if (IsTraceEnabled() && ppCommandLists) {
+            for (UINT i = 0; i < NumCommandLists; i++) {
+                TraceLoggingWriteTagged(
+                    local, "ID3D12CommandQueue_ExecuteCommandLists", TLPArg(ppCommandLists[i], "pCommandList"));
+            }
+        }
+
+        // Invoke the hook before the real execution, in order to inject Wait() commands if needed.
+        assert(g_InjectionManager);
+        std::vector<ID3D12CommandList*> commandLists(ppCommandLists, ppCommandLists + NumCommandLists);
+        g_InjectionManager->OnExecuteCommandLists(pCommandQueue, commandLists);
+
+        assert(original_ID3D12CommandQueue_ExecuteCommandLists);
+        original_ID3D12CommandQueue_ExecuteCommandLists(pCommandQueue, NumCommandLists, ppCommandLists);
+
+        TraceLoggingWriteStop(local, "ID3D12CommandQueue_ExecuteCommandLists");
+    }
+
     DECLARE_DETOUR_FUNCTION(
         HRESULT, STDMETHODCALLTYPE, IDXGISwapChain_Present, IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags) {
         TraceLocalActivity(local);
@@ -204,13 +234,21 @@ namespace Injector {
                            hooked_ID3D12GraphicsCommandList_RSSetViewports,
                            original_ID3D12GraphicsCommandList_RSSetViewports);
 
-        // Hook to the swapchain presentation, where we will collect information on rendering.
+        // Hook to the command queue's ExecuteCommandLists() in order to add synchronization between our command lists.
         D3D12_COMMAND_QUEUE_DESC commandQueueDesc{};
         commandQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         commandQueueDesc.NodeMask = 1;
         ComPtr<ID3D12CommandQueue> commandQueue;
         CHECK_HRCMD(device->CreateCommandQueue(&commandQueueDesc, IID_PPV_ARGS(commandQueue.ReleaseAndGetAddressOf())));
 
+        TraceLoggingWriteTagged(
+            local, "InstallHooks_Detour_ExecuteCommandLists", TLPArg(commandQueue.Get(), "CommandQueue"));
+        DetourMethodAttach(commandQueue.Get(),
+                           10, // ExecuteCommandLists()
+                           hooked_ID3D12CommandQueue_ExecuteCommandLists,
+                           original_ID3D12CommandQueue_ExecuteCommandLists);
+
+        // Hook to the swapchain presentation, where we will collect information on rendering.
         DXGI_SWAP_CHAIN_DESC1 swapChainDesc{};
         swapChainDesc.BufferCount = 2;
         swapChainDesc.Width = 128;

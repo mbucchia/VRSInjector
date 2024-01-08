@@ -118,6 +118,10 @@ namespace {
                 const TiledResolution shadingRateMapResolution{
                     Align(static_cast<UINT>(Viewport.Width + DBL_EPSILON), m_TileSize) / m_TileSize,
                     Align(static_cast<UINT>(Viewport.Height + DBL_EPSILON), m_TileSize) / m_TileSize};
+                TraceLoggingWriteTagged(local,
+                                        "VRSEnable",
+                                        TLArg(shadingRateMapResolution.Width, "TiledWidth"),
+                                        TLArg(shadingRateMapResolution.Height, "TiledHeight"));
 
                 auto it = m_ShadingRateMaps.find(shadingRateMapResolution);
                 if (it != m_ShadingRateMaps.end()) {
@@ -135,9 +139,13 @@ namespace {
                             D3D12_SHADING_RATE_COMBINER_MAX, D3D12_SHADING_RATE_COMBINER_MAX};
                         vrsCommandList->RSSetShadingRate(D3D12_SHADING_RATE_1X1, combiners);
                         vrsCommandList->RSSetShadingRateImage(it->second.ShadingRateTexture.Get());
+                    } else {
+                        // The shading rate map isn't ready for use yet.
+                        TraceLoggingWriteTagged(local, "VRSEnable_NotReady");
                     }
                 } else {
                     // Request the shading rate map to be generated for a future pass.
+                    TraceLoggingWriteTagged(local, "VRSEnable_Request");
                     RequestShadingRateMap(shadingRateMapResolution);
                 }
             } else {
@@ -165,6 +173,12 @@ namespace {
         }
 
         void RequestShadingRateMap(const TiledResolution& Resolution) {
+            TraceLocalActivity(local);
+            TraceLoggingWriteStart(local,
+                                   "VRSCreateShadingRateMap",
+                                   TLArg(Resolution.Width, "TiledWidth"),
+                                   TLArg(Resolution.Height, "TiledHeight"));
+
             const int rowPitch = Align(Resolution.Width, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
 
             // TODO: Move this process to a compute shader.
@@ -205,6 +219,15 @@ namespace {
                                      D3D12_SHADING_RATE_1X1,
                                      D3D12_SHADING_RATE_2X2,
                                      D3D12_SHADING_RATE_4X4);
+#ifdef _DEBUG
+            // Keep the corner clear for Steam's FPS counter.
+            pattern[0] = D3D12_SHADING_RATE_1X1;
+            pattern[1] = D3D12_SHADING_RATE_1X1;
+            pattern[2] = D3D12_SHADING_RATE_1X1;
+            pattern[rowPitch + 0] = D3D12_SHADING_RATE_1X1;
+            pattern[rowPitch + 1] = D3D12_SHADING_RATE_1X1;
+            pattern[rowPitch + 2] = D3D12_SHADING_RATE_1X1;
+#endif
             {
                 void* mappedBuffer = nullptr;
                 newShadingRateMap.ShadingRateUpload->Map(0, nullptr, &mappedBuffer);
@@ -233,8 +256,10 @@ namespace {
                                                      D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE);
             commandList.CommandList->ResourceBarrier(1, &barrier);
 
-            newShadingRateMap.CompletedFenceValue = SubmitCommandList(commandList);
+            const uint64_t CompletedFenceValue = newShadingRateMap.CompletedFenceValue = SubmitCommandList(commandList);
             m_ShadingRateMaps.insert_or_assign(Resolution, std::move(newShadingRateMap));
+
+            TraceLoggingWriteStop(local, "VRSCreateShadingRateMap", TLArg(CompletedFenceValue, "CompletedFenceValue"));
         }
 
         void GenerateFoveationPattern(std::vector<uint8_t>& Pattern,

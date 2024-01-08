@@ -106,7 +106,11 @@
     </Link>
     <PostBuildEvent>
       <Command>copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
-$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe</Command>
+$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe
+
+copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12DynamicIndexing\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
+$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12DynamicIndexing.exe
+</Command>
     </PostBuildEvent>
     <PostBuildEvent>
       <Message>Preparing TestApps...</Message>
@@ -136,7 +140,11 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multi
     </Link>
     <PostBuildEvent>
       <Command>copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
-$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe</Command>
+$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe
+
+copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12DynamicIndexing\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
+$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12DynamicIndexing.exe
+</Command>
     </PostBuildEvent>
     <PostBuildEvent>
       <Message>Preparing TestApps...</Message>
@@ -162,7 +170,11 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multi
     </Link>
     <PostBuildEvent>
       <Command>copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
-$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe</Command>
+$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe
+
+copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12DynamicIndexing\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
+$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12DynamicIndexing.exe
+</Command>
     </PostBuildEvent>
     <PostBuildEvent>
       <Message>Preparing TestApps...</Message>
@@ -192,7 +204,11 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multi
     </Link>
     <PostBuildEvent>
       <Command>copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
-$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe</Command>
+$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe
+
+copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12DynamicIndexing\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
+$(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12DynamicIndexing.exe
+</Command>
     </PostBuildEvent>
     <PostBuildEvent>
       <Message>Preparing TestApps...</Message>

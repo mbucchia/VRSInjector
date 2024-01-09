@@ -237,7 +237,6 @@ namespace Injector {
         // Hook to the command queue's ExecuteCommandLists() in order to add synchronization between our command lists.
         D3D12_COMMAND_QUEUE_DESC commandQueueDesc{};
         commandQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-        commandQueueDesc.NodeMask = 1;
         ComPtr<ID3D12CommandQueue> commandQueue;
         CHECK_HRCMD(device->CreateCommandQueue(&commandQueueDesc, IID_PPV_ARGS(commandQueue.ReleaseAndGetAddressOf())));
 

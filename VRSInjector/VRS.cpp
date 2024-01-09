@@ -23,14 +23,31 @@
 #include "pch.h"
 
 #include "Check.h"
+#include "D3D12Utils.h"
 #include "Tracing.h"
 #include "VRS.h"
+
+#include <GenerateShadingRateMapCS.h>
 
 namespace {
 
     using namespace VRS;
+    using namespace D3D12Utils;
 
 #define Align(value, pad_to) (((value) + (pad_to)-1) & ~((pad_to)-1))
+
+    // We will use Root Constants to pass these values to the shader.
+    struct GenerateShadingRateMapConstants {
+        float CenterX;
+        float CenterY;
+        float InnerRing;
+        float OuterRing;
+        uint32_t Rate1x1;
+        uint32_t RateMedium;
+        uint32_t RateLow;
+    };
+    static_assert(!(sizeof(GenerateShadingRateMapConstants) % 4), "Constants size must be a multiple of 4 bytes");
+    static_assert(sizeof(GenerateShadingRateMapConstants) / 4 < 64, "Maximum of 64 constants");
 
     struct TiledResolution {
         UINT Width;
@@ -54,16 +71,11 @@ namespace {
     };
 
     struct CommandManager : ICommandManager {
-        struct D3D12ReusableCommandList {
-            ComPtr<ID3D12CommandAllocator> Allocator;
-            ComPtr<ID3D12GraphicsCommandList> CommandList;
-            uint64_t CompletedFenceValue{0};
-        };
-
         // TODO: Implement aging of the entries.
         struct ShadingRateMap {
             ComPtr<ID3D12Resource> ShadingRateTexture;
-            ComPtr<ID3D12Resource> ShadingRateUpload;
+            D3D12_CPU_DESCRIPTOR_HANDLE UAV;
+            D3D12_GPU_DESCRIPTOR_HANDLE UAVDescriptor;
             uint64_t CompletedFenceValue{0};
         };
 
@@ -82,30 +94,48 @@ namespace {
                                         TLArg(options.ShadingRateImageTileSize, "ShadingRateImageTileSize"));
                 return;
             }
-            m_TileSize = options.ShadingRateImageTileSize;
+            m_VRSTileSize = options.ShadingRateImageTileSize;
 
-            // Create a command queue where we will perform the generation of the shading rate textures.
-            D3D12_COMMAND_QUEUE_DESC commandQueueDesc{};
-            commandQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-            commandQueueDesc.NodeMask = 1;
-            CHECK_HRCMD(
-                m_Device->CreateCommandQueue(&commandQueueDesc, IID_PPV_ARGS(m_CommandQueue.ReleaseAndGetAddressOf())));
-            m_CommandQueue->SetName(L"Shading Rate Creation Command Queue");
+            // Create a command context where we will perform the generation of the shading rate textures.
+            m_Context = std::make_unique<CommandContext>(m_Device.Get(), L"Shading Rate Map Creation");
 
-            CHECK_HRCMD(m_Device->CreateFence(
-                0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_CommandListPoolFence.ReleaseAndGetAddressOf())));
-            m_CommandListPoolFence->SetName(L"Shading Rate Creation Fence");
+            // Create resources for the GenerateShadingRateMap compute shader.
+            D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc{};
+            D3D12_DESCRIPTOR_RANGE uavRange;
+            CD3DX12_DESCRIPTOR_RANGE::Init(uavRange, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
+            D3D12_ROOT_PARAMETER rootParameters[2];
+            CD3DX12_ROOT_PARAMETER::InitAsDescriptorTable(rootParameters[0], 1, &uavRange);
+            CD3DX12_ROOT_PARAMETER::InitAsConstants(rootParameters[1], sizeof(GenerateShadingRateMapConstants) / 4, 0);
+            rootSignatureDesc.pParameters = rootParameters;
+            rootSignatureDesc.NumParameters = ARRAYSIZE(rootParameters);
+
+            ComPtr<ID3DBlob> rootSignatureBlob;
+            ComPtr<ID3DBlob> error;
+            CHECK_MSG(SUCCEEDED(D3D12SerializeRootSignature(&rootSignatureDesc,
+                                                            D3D_ROOT_SIGNATURE_VERSION_1,
+                                                            rootSignatureBlob.GetAddressOf(),
+                                                            error.GetAddressOf())),
+                      (char*)error->GetBufferPointer());
+
+            CHECK_HRCMD(m_Device->CreateRootSignature(0,
+                                                      rootSignatureBlob->GetBufferPointer(),
+                                                      rootSignatureBlob->GetBufferSize(),
+                                                      IID_PPV_ARGS(m_GenerateRootSignature.ReleaseAndGetAddressOf())));
+            m_GenerateRootSignature->SetName(L"GenerateShadingRateMapCS Root Signature");
+
+            D3D12_COMPUTE_PIPELINE_STATE_DESC computeDesc{};
+            computeDesc.CS.pShaderBytecode = g_GenerateShadingRateMapCS;
+            computeDesc.CS.BytecodeLength = ARRAYSIZE(g_GenerateShadingRateMapCS);
+            computeDesc.pRootSignature = m_GenerateRootSignature.Get();
+            CHECK_HRCMD(m_Device->CreateComputePipelineState(&computeDesc,
+                                                             IID_PPV_ARGS(m_GeneratePSO.ReleaseAndGetAddressOf())));
+            m_GeneratePSO->SetName(L"GenerateShadingRateMapCS PSO");
+
+            // Create a descriptor heap for the UAVs for our shading rate textures.
+            m_HeapForUAVs = std::make_unique<DescriptorHeap>(
+                m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128u, L"Shading Rate Map UAV");
 
             TraceLoggingWriteStop(local, "VRSCreate");
-        }
-
-        ~CommandManager() override {
-            if (m_CommandListPoolFenceValue) {
-                wil::unique_handle handle;
-                *handle.put() = CreateEventEx(nullptr, L"Destruction Fence", 0, EVENT_ALL_ACCESS);
-                CHECK_HRCMD(m_CommandListPoolFence->SetEventOnCompletion(m_CommandListPoolFenceValue, handle.get()));
-                WaitForSingleObject(handle.get(), INFINITE);
-            }
         }
 
         void Enable(ID3D12CommandList* pCommandList, const D3D12_VIEWPORT& Viewport) override {
@@ -114,8 +144,8 @@ namespace {
 
             if (m_Device) {
                 const TiledResolution shadingRateMapResolution{
-                    Align(static_cast<UINT>(Viewport.Width + DBL_EPSILON), m_TileSize) / m_TileSize,
-                    Align(static_cast<UINT>(Viewport.Height + DBL_EPSILON), m_TileSize) / m_TileSize};
+                    Align(static_cast<UINT>(Viewport.Width + DBL_EPSILON), m_VRSTileSize) / m_VRSTileSize,
+                    Align(static_cast<UINT>(Viewport.Height + DBL_EPSILON), m_VRSTileSize) / m_VRSTileSize};
                 TraceLoggingWriteTagged(local,
                                         "VRSEnable",
                                         TLArg(shadingRateMapResolution.Width, "TiledWidth"),
@@ -129,13 +159,10 @@ namespace {
                     auto it = m_ShadingRateMaps.find(shadingRateMapResolution);
                     if (it != m_ShadingRateMaps.end()) {
                         shadingRateMap = it->second;
-                        if (IsCommandListCompleted(shadingRateMap.CompletedFenceValue)) {
-                            // Release the upload buffer.
-                            it->second.ShadingRateUpload.Reset();
 
-                            // No need to create a dependency on the GPU.
-                            skipDependency = true;
-                        }
+                        // No need to create a dependency on the GPU.
+                        skipDependency = m_Context->IsCommandListCompleted(shadingRateMap.CompletedFenceValue);
+
                         TraceLoggingWriteTagged(local, "VRSEnable_Reuse", TLArg(!skipDependency, "NeedDependency"));
 
                     } else {
@@ -200,7 +227,7 @@ namespace {
                     // Insert a wait to ensure the shading rate map is ready for use.
                     TraceLoggingWriteTagged(
                         local, "SyncQueue_Wait", TLPArg(commandList, "CommandList"), TLArg(fenceValue, "FenceValue"));
-                    pCommandQueue->Wait(m_CommandListPoolFence.Get(), fenceValue);
+                    pCommandQueue->Wait(m_Context->GetCompletionFence(), fenceValue);
 
                     // Retire the dependency.
                     m_CommandListDependencies.erase(it);
@@ -219,82 +246,39 @@ namespace {
 
             const int rowPitch = Align(Resolution.Width, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
 
-            // TODO: Move this process to a compute shader.
             ShadingRateMap newShadingRateMap;
+
+            // Create the resources for the texture.
             const D3D12_HEAP_PROPERTIES defaultHeap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-            const D3D12_RESOURCE_DESC textureDesc = CD3DX12_RESOURCE_DESC::Tex2D(
-                DXGI_FORMAT_R8_UINT, Resolution.Width, Resolution.Height, 1 /* arraySize */, 1 /* mipLevels */);
+            const D3D12_RESOURCE_DESC textureDesc =
+                CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8_UINT,
+                                             Resolution.Width,
+                                             Resolution.Height,
+                                             1 /* arraySize */,
+                                             1 /* mipLevels */,
+                                             1 /* sampleCount */,
+                                             0 /* sampleQuality */,
+                                             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
             CHECK_HRCMD(m_Device->CreateCommittedResource(
                 &defaultHeap,
                 D3D12_HEAP_FLAG_NONE,
                 &textureDesc,
-                D3D12_RESOURCE_STATE_COPY_DEST,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                 nullptr,
                 IID_PPV_ARGS(newShadingRateMap.ShadingRateTexture.ReleaseAndGetAddressOf())));
             newShadingRateMap.ShadingRateTexture->SetName(L"Shading Rate Texture");
 
-            // Create an upload buffer.
-            const D3D12_HEAP_PROPERTIES uploadHeap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-            const D3D12_RESOURCE_DESC uploadDesc = CD3DX12_RESOURCE_DESC::Buffer(rowPitch * Resolution.Height);
-            CHECK_HRCMD(m_Device->CreateCommittedResource(
-                &uploadHeap,
-                D3D12_HEAP_FLAG_NONE,
-                &uploadDesc,
-                D3D12_RESOURCE_STATE_GENERIC_READ,
-                nullptr,
-                IID_PPV_ARGS(newShadingRateMap.ShadingRateUpload.ReleaseAndGetAddressOf())));
+            newShadingRateMap.UAV = m_HeapForUAVs->AllocateDescriptor();
+            newShadingRateMap.UAVDescriptor = m_HeapForUAVs->GetGPUDescriptor(newShadingRateMap.UAV);
 
-            // Generate the pattern and copy it to the upload buffer.
-            std::vector<uint8_t> pattern;
-            GenerateFoveationPattern(pattern,
-                                     Resolution,
-                                     rowPitch,
-                                     Resolution.Width / 2,
-                                     Resolution.Height / 2,
-                                     0.5f,
-                                     0.8f,
-                                     1.f,
-                                     D3D12_SHADING_RATE_1X1,
-                                     D3D12_SHADING_RATE_2X2,
-                                     D3D12_SHADING_RATE_4X4);
-#ifdef _DEBUG
-            // Keep the corner clear for Steam's FPS counter.
-            pattern[0] = D3D12_SHADING_RATE_1X1;
-            pattern[1] = D3D12_SHADING_RATE_1X1;
-            pattern[2] = D3D12_SHADING_RATE_1X1;
-            pattern[rowPitch + 0] = D3D12_SHADING_RATE_1X1;
-            pattern[rowPitch + 1] = D3D12_SHADING_RATE_1X1;
-            pattern[rowPitch + 2] = D3D12_SHADING_RATE_1X1;
-#endif
-            {
-                void* mappedBuffer = nullptr;
-                newShadingRateMap.ShadingRateUpload->Map(0, nullptr, &mappedBuffer);
-                memcpy(mappedBuffer, pattern.data(), pattern.size());
-                newShadingRateMap.ShadingRateUpload->Unmap(0, nullptr);
-            }
+            D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
+            uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+            uavDesc.Format = DXGI_FORMAT_R8_UINT;
+            m_Device->CreateUnorderedAccessView(
+                newShadingRateMap.ShadingRateTexture.Get(), nullptr, &uavDesc, newShadingRateMap.UAV);
 
-            D3D12ReusableCommandList commandList = GetCommandList();
+            UpdateShadingRateMap(Resolution, newShadingRateMap, 0.5f, 0.5f, true /* IsFreshTexture */);
 
-            // Copy to the the shading rate texture.
-            D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
-            ZeroMemory(&footprint, sizeof(footprint));
-            footprint.Footprint.Width = Resolution.Width;
-            footprint.Footprint.Height = Resolution.Height;
-            footprint.Footprint.Depth = 1;
-            footprint.Footprint.RowPitch = rowPitch;
-            footprint.Footprint.Format = DXGI_FORMAT_R8_UINT;
-            CD3DX12_TEXTURE_COPY_LOCATION src(newShadingRateMap.ShadingRateUpload.Get(), footprint);
-            CD3DX12_TEXTURE_COPY_LOCATION dst(newShadingRateMap.ShadingRateTexture.Get(), 0);
-            commandList.CommandList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-
-            // Transition to the correct state for use with VRS.
-            const D3D12_RESOURCE_BARRIER barrier =
-                CD3DX12_RESOURCE_BARRIER::Transition(newShadingRateMap.ShadingRateTexture.Get(),
-                                                     D3D12_RESOURCE_STATE_COPY_DEST,
-                                                     D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE);
-            commandList.CommandList->ResourceBarrier(1, &barrier);
-
-            newShadingRateMap.CompletedFenceValue = SubmitCommandList(commandList);
             m_ShadingRateMaps.insert_or_assign(Resolution, newShadingRateMap);
 
             TraceLoggingWriteStop(
@@ -303,109 +287,66 @@ namespace {
             return newShadingRateMap;
         }
 
-        void GenerateFoveationPattern(std::vector<uint8_t>& Pattern,
-                                      const TiledResolution& Resolution,
-                                      size_t RowPitch,
-                                      UINT FoveaCenterX,
-                                      UINT FoveaCenterY,
-                                      float InnerRadius,
-                                      float OuterRadius,
-                                      float SemiMajorFactor,
-                                      uint8_t InnerValue,
-                                      uint8_t MiddleValue,
-                                      uint8_t OuterValue) const {
-            Pattern.resize(RowPitch * Resolution.Height);
+        void UpdateShadingRateMap(const TiledResolution& Resolution,
+                                  ShadingRateMap& ShadingRateMap,
+                                  float CenterX,
+                                  float CenterY,
+                                  bool IsFreshTexture = false) {
+            // Prepare a command list.
+            CommandList commandList = m_Context->GetCommandList();
+            ID3D12DescriptorHeap* heaps[] = {m_HeapForUAVs->GetDescriptorHeap()};
+            commandList.Commands->SetDescriptorHeaps(ARRAYSIZE(heaps), heaps);
 
-            const UINT innerSemiMinor = static_cast<UINT>(Resolution.Height * InnerRadius / 2);
-            const UINT innerSemiMajor = static_cast<UINT>(SemiMajorFactor * innerSemiMinor);
-            const UINT outerSemiMinor = static_cast<UINT>(Resolution.Height * OuterRadius / 2);
-            const UINT outerSemiMajor = static_cast<UINT>(SemiMajorFactor * outerSemiMinor);
-
-            auto isInsideEllipsis = [](INT h, INT k, INT x, INT y, UINT a, UINT b) {
-                return (pow((x - h), 2) / pow(a, 2)) + (pow((y - k), 2) / pow(b, 2));
-            };
-
-            for (UINT y = 0; y < Resolution.Height; y++) {
-                for (UINT x = 0; x < Resolution.Width; x++) {
-                    uint8_t rate = OuterValue;
-                    if (isInsideEllipsis(FoveaCenterX, FoveaCenterY, x, y, innerSemiMajor, innerSemiMinor) < 1) {
-                        rate = InnerValue;
-                    } else if (isInsideEllipsis(FoveaCenterX, FoveaCenterY, x, y, outerSemiMajor, outerSemiMinor) < 1) {
-                        rate = MiddleValue;
-                    }
-
-                    Pattern[y * RowPitch + x] = rate;
-                }
-            }
-        }
-
-        D3D12ReusableCommandList GetCommandList() {
-            std::unique_lock lock(m_CommandListPoolMutex);
-
-            if (m_AvailableCommandList.empty()) {
-                // Recycle completed command lists.
-                while (!m_PendingCommandList.empty() &&
-                       IsCommandListCompleted(m_PendingCommandList.front().CompletedFenceValue)) {
-                    m_AvailableCommandList.push_back(std::move(m_PendingCommandList.front()));
-                    m_PendingCommandList.pop_front();
-                }
+            if (!IsFreshTexture) {
+                // Transition to UAV state for the compute shader.
+                const D3D12_RESOURCE_BARRIER barrier =
+                    CD3DX12_RESOURCE_BARRIER::Transition(ShadingRateMap.ShadingRateTexture.Get(),
+                                                         D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE,
+                                                         D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                commandList.Commands->ResourceBarrier(1, &barrier);
             }
 
-            D3D12ReusableCommandList commandList;
-            if (m_AvailableCommandList.empty()) {
-                // Allocate a new command list if needed.
-                CHECK_HRCMD(m_Device->CreateCommandAllocator(
-                    D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(commandList.Allocator.ReleaseAndGetAddressOf())));
-                CHECK_HRCMD(
-                    m_Device->CreateCommandList(0,
-                                                D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                                commandList.Allocator.Get(),
-                                                nullptr,
-                                                IID_PPV_ARGS(commandList.CommandList.ReleaseAndGetAddressOf())));
-            } else {
-                commandList = m_AvailableCommandList.front();
-                m_AvailableCommandList.pop_front();
+            // Dispatch the compute shader to generate the map.
+            GenerateShadingRateMapConstants constants{};
+            constants.CenterX = CenterX * Resolution.Width;
+            constants.CenterY = CenterY * Resolution.Height;
+            // TODO: Customize these.
+            constants.InnerRing = 0.25f * Resolution.Height;
+            constants.OuterRing = 0.8f * Resolution.Height;
+            constants.Rate1x1 = D3D12_SHADING_RATE_1X1;
+            constants.RateMedium = D3D12_SHADING_RATE_2X2;
+            constants.RateLow = D3D12_SHADING_RATE_4X4;
+            commandList.Commands->SetComputeRootSignature(m_GenerateRootSignature.Get());
+            commandList.Commands->SetPipelineState(m_GeneratePSO.Get());
+            commandList.Commands->SetComputeRootDescriptorTable(0, ShadingRateMap.UAVDescriptor);
+            commandList.Commands->SetComputeRoot32BitConstants(
+                1, sizeof(GenerateShadingRateMapConstants) / 4, &constants, 0);
+            commandList.Commands->Dispatch(Align(Resolution.Width, 8) / 8, Align(Resolution.Height, 8) / 8, 1);
 
-                // Reset the command list before reuse.
-                CHECK_HRCMD(commandList.Allocator->Reset());
-                CHECK_HRCMD(commandList.CommandList->Reset(commandList.Allocator.Get(), nullptr));
-            }
-            return commandList;
-        }
+            // Transition to the correct state for use with VRS.
+            const D3D12_RESOURCE_BARRIER barrier =
+                CD3DX12_RESOURCE_BARRIER::Transition(ShadingRateMap.ShadingRateTexture.Get(),
+                                                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                                     D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE);
+            commandList.Commands->ResourceBarrier(1, &barrier);
 
-        uint64_t SubmitCommandList(D3D12ReusableCommandList CommandList) {
-            std::unique_lock lock(m_CommandListPoolMutex);
-
-            CHECK_HRCMD(CommandList.CommandList->Close());
-            // TODO: This call goes through the Detoured version, which causes unwanted tracing.
-            m_CommandQueue->ExecuteCommandLists(
-                1, reinterpret_cast<ID3D12CommandList**>(CommandList.CommandList.GetAddressOf()));
-            CommandList.CompletedFenceValue = ++m_CommandListPoolFenceValue;
-            m_CommandQueue->Signal(m_CommandListPoolFence.Get(), CommandList.CompletedFenceValue);
-            m_PendingCommandList.push_back(std::move(CommandList));
-
-            return CommandList.CompletedFenceValue;
-        }
-
-        bool IsCommandListCompleted(uint64_t CompletedFenceValue) {
-            return m_CommandListPoolFence->GetCompletedValue() >= CompletedFenceValue;
+            ShadingRateMap.CompletedFenceValue = m_Context->SubmitCommandList(commandList);
         }
 
         ComPtr<ID3D12Device> m_Device;
-        ComPtr<ID3D12CommandQueue> m_CommandQueue;
+        UINT m_VRSTileSize{0};
+
+        std::unique_ptr<CommandContext> m_Context;
+        std::unique_ptr<DescriptorHeap> m_HeapForUAVs;
+
+        ComPtr<ID3D12RootSignature> m_GenerateRootSignature;
+        ComPtr<ID3D12PipelineState> m_GeneratePSO;
 
         std::mutex m_ShadingRateMapsMutex;
         std::unordered_map<TiledResolution, ShadingRateMap, TiledResolution> m_ShadingRateMaps;
-        UINT m_TileSize{0};
 
         std::mutex m_CommandListDependenciesMutex;
         std::unordered_map<ID3D12CommandList*, uint64_t> m_CommandListDependencies;
-
-        std::mutex m_CommandListPoolMutex;
-        std::deque<D3D12ReusableCommandList> m_AvailableCommandList;
-        std::deque<D3D12ReusableCommandList> m_PendingCommandList;
-        ComPtr<ID3D12Fence> m_CommandListPoolFence;
-        uint64_t m_CommandListPoolFenceValue{0};
     };
 
 } // namespace

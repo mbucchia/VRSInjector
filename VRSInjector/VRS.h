@@ -32,6 +32,8 @@ namespace VRS {
 
         virtual void SyncQueue(ID3D12CommandQueue* pCommandQueue,
                                const std::vector<ID3D12CommandList*>& CommandLists) = 0;
+
+        virtual void Present() = 0;
     };
 
     std::unique_ptr<ICommandManager> CreateCommandManager(ID3D12Device* Device);

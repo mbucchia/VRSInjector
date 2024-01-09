@@ -104,6 +104,10 @@ namespace {
                                             TLArg(swapChainDesc.BufferDesc.Width, "Width"),
                                             TLArg(swapChainDesc.BufferDesc.Height, "Height"));
                     it->second.PresentResolution = {swapChainDesc.BufferDesc.Width, swapChainDesc.BufferDesc.Height};
+
+                    VRS::ICommandManager* const commandManager = it->second.CommandManager.get();
+                    commandManager->Present();
+
                 } else {
                     // First time we see this device, let's create a VRS command manager for it.
                     TraceLoggingWriteTagged(local,

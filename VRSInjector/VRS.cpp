@@ -73,6 +73,7 @@ namespace {
     struct CommandManager : ICommandManager {
         // TODO: Implement aging of the entries.
         struct ShadingRateMap {
+            uint64_t Generation{0};
             ComPtr<ID3D12Resource> ShadingRateTexture;
             D3D12_CPU_DESCRIPTOR_HANDLE UAV;
             D3D12_GPU_DESCRIPTOR_HANDLE UAVDescriptor;
@@ -158,6 +159,16 @@ namespace {
 
                     auto it = m_ShadingRateMaps.find(shadingRateMapResolution);
                     if (it != m_ShadingRateMaps.end()) {
+                        {
+                            ShadingRateMap& updatableShadingRateMap = it->second;
+
+                            if (updatableShadingRateMap.Generation != m_CurrentGeneration) {
+                                float GazeX, GazeY;
+                                GetEyeGaze(GazeX, GazeY);
+                                UpdateShadingRateMap(shadingRateMapResolution, updatableShadingRateMap, GazeX, GazeY);
+                            }
+                        }
+
                         shadingRateMap = it->second;
 
                         // No need to create a dependency on the GPU.
@@ -235,6 +246,13 @@ namespace {
             }
 
             TraceLoggingWriteStop(local, "SyncQueue", TLPArg(pCommandQueue, "CommandQueue"));
+        }
+
+        void Present() override {
+            TraceLocalActivity(local);
+            TraceLoggingWriteStart(local, "VRSPresent");
+            m_CurrentGeneration++;
+            TraceLoggingWriteStop(local, "VRSPresent", TLArg(m_CurrentGeneration, "CurrentGeneration"));
         }
 
         ShadingRateMap RequestShadingRateMap(const TiledResolution& Resolution) {
@@ -331,6 +349,26 @@ namespace {
             commandList.Commands->ResourceBarrier(1, &barrier);
 
             ShadingRateMap.CompletedFenceValue = m_Context->SubmitCommandList(commandList);
+            ShadingRateMap.Generation = m_CurrentGeneration;
+        }
+
+        void GetEyeGaze(float& GazeX, float& GazeY) {
+#if DEBUG_GAZE
+            RECT rect;
+            rect.left = 1;
+            rect.right = 999;
+            rect.top = 1;
+            rect.bottom = 999;
+            ClipCursor(&rect);
+
+            POINT pt{};
+            GetCursorPos(&pt);
+
+            GazeX = (float)pt.x / 1000.f;
+            GazeY = (float)pt.y / 1000.f;
+#else
+#error Not implemented
+#endif
         }
 
         ComPtr<ID3D12Device> m_Device;
@@ -344,6 +382,7 @@ namespace {
 
         std::mutex m_ShadingRateMapsMutex;
         std::unordered_map<TiledResolution, ShadingRateMap, TiledResolution> m_ShadingRateMaps;
+        uint64_t m_CurrentGeneration{0};
 
         std::mutex m_CommandListDependenciesMutex;
         std::unordered_map<ID3D12CommandList*, uint64_t> m_CommandListDependencies;

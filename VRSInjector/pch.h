@@ -26,7 +26,9 @@
 #include <deque>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <unordered_map>
 
 #define WIN32_LEAN_AND_MEAN

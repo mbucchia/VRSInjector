@@ -51,6 +51,8 @@ namespace {
             ComPtr<ID3D12Device> device;
             CHECK_HRCMD(pCommandList->GetDevice(IID_PPV_ARGS(device.ReleaseAndGetAddressOf())));
 
+            std::shared_lock lock(m_ContextsMutex);
+
             auto it = m_Contexts.find(device.Get());
             if (it != m_Contexts.end()) {
                 VRS::ICommandManager* const commandManager = it->second.CommandManager.get();
@@ -80,6 +82,8 @@ namespace {
             ComPtr<ID3D12Device> device;
             CHECK_HRCMD(pCommandQueue->GetDevice(IID_PPV_ARGS(device.ReleaseAndGetAddressOf())));
 
+            std::shared_lock lock(m_ContextsMutex);
+
             auto it = m_Contexts.find(device.Get());
             if (it != m_Contexts.end()) {
                 VRS::ICommandManager* const commandManager = it->second.CommandManager.get();
@@ -103,6 +107,8 @@ namespace {
                 // Update the output resolution we should use for our heuristic.
                 DXGI_SWAP_CHAIN_DESC swapChainDesc{};
                 CHECK_HRCMD(pSwapChain->GetDesc(&swapChainDesc));
+
+                std::unique_lock lock(m_ContextsMutex);
 
                 auto it = m_Contexts.find(device.Get());
                 if (it != m_Contexts.end()) {
@@ -188,8 +194,11 @@ namespace {
         }
 
         bool m_Enabled{true};
+
+        std::shared_mutex m_ContextsMutex;
         std::unordered_map<ID3D12Device*, RenderingContext> m_Contexts;
 
+        // The members below are also protected by m_ContextsMutex.
         std::unique_ptr<IEyeGazeManager> m_EyeGazeManager;
         unsigned int m_EyeGazeManagerAging{0};
         bool m_GazeUpdatedThisFrame{false};

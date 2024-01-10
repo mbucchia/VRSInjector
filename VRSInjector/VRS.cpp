@@ -161,7 +161,11 @@ namespace {
                                         TLArg(shadingRateMapResolution.Height, "TiledHeight"));
 
                 float gazeX = 0.5f, gazeY = 0.5f, distance = 600.f /* mm */;
-                const bool isGazeAvailable = eyeGazeManager && eyeGazeManager->GetGaze(gazeX, gazeY, distance);
+                const bool wasUsingEyeGaze = m_UsingEyeGaze;
+                m_UsingEyeGaze = eyeGazeManager && eyeGazeManager->GetGaze(gazeX, gazeY, distance);
+                // When eye gaze becomes unavailable, we revert to fixed foveation, and we need to perform one last
+                // update of the shading rate map with the default values above.
+                const bool isEyeGazeAvailable = m_UsingEyeGaze || wasUsingEyeGaze;
                 const float scaleFactor = std::clamp(distance / 600.f, 0.1f, 1.5f);
 
                 bool skipDependency = false;
@@ -171,7 +175,7 @@ namespace {
 
                     auto it = m_ShadingRateMaps.find(shadingRateMapResolution);
                     if (it != m_ShadingRateMaps.end()) {
-                        if (isGazeAvailable) {
+                        if (isEyeGazeAvailable) {
                             ShadingRateMap& updatableShadingRateMap = it->second;
 
                             if (updatableShadingRateMap.Generation != m_CurrentGeneration) {
@@ -424,6 +428,8 @@ namespace {
         std::mutex m_ShadingRateMapsMutex;
         std::unordered_map<TiledResolution, ShadingRateMap, TiledResolution> m_ShadingRateMaps;
         uint64_t m_CurrentGeneration{0};
+
+        bool m_UsingEyeGaze{false};
 
         std::mutex m_CommandListDependenciesMutex;
         std::unordered_map<ID3D12CommandList*, CommandListDependency> m_CommandListDependencies;

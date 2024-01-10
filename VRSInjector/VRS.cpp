@@ -81,6 +81,11 @@ namespace {
             uint64_t CompletedFenceValue{0};
         };
 
+        struct CommandListDependency {
+            uint64_t FenceValue;
+            unsigned int Age{0};
+        };
+
         CommandManager(ID3D12Device* Device) : m_Device(Device) {
             TraceLocalActivity(local);
             TraceLoggingWriteStart(local, "VRSCreate", TLPArg(Device, "Device"));
@@ -204,7 +209,9 @@ namespace {
                     std::unique_lock lock(m_CommandListDependenciesMutex);
 
                     // Add a dependency for command list submission.
-                    m_CommandListDependencies.insert_or_assign(pCommandList, shadingRateMap.CompletedFenceValue);
+                    CommandListDependency dependency{};
+                    dependency.FenceValue = shadingRateMap.CompletedFenceValue;
+                    m_CommandListDependencies.insert_or_assign(pCommandList, std::move(dependency));
                 }
             } else {
                 TraceLoggingWriteTagged(local, "VRSEnable_NotSupported");
@@ -240,12 +247,14 @@ namespace {
             for (const auto& commandList : CommandLists) {
                 auto it = m_CommandListDependencies.find(commandList);
                 if (it != m_CommandListDependencies.end()) {
-                    const uint64_t fenceValue = it->second;
+                    const CommandListDependency& dependency = it->second;
 
                     // Insert a wait to ensure the shading rate map is ready for use.
-                    TraceLoggingWriteTagged(
-                        local, "SyncQueue_Wait", TLPArg(commandList, "CommandList"), TLArg(fenceValue, "FenceValue"));
-                    pCommandQueue->Wait(m_Context->GetCompletionFence(), fenceValue);
+                    TraceLoggingWriteTagged(local,
+                                            "SyncQueue_Wait",
+                                            TLPArg(commandList, "CommandList"),
+                                            TLArg(dependency.FenceValue, "FenceValue"));
+                    pCommandQueue->Wait(m_Context->GetCompletionFence(), dependency.FenceValue);
 
                     // Retire the dependency.
                     m_CommandListDependencies.erase(it);
@@ -262,14 +271,36 @@ namespace {
             {
                 std::unique_lock lock(m_ShadingRateMapsMutex);
 
+                TraceLoggingWriteTagged(
+                    local, "VRSPresent_Cleanup_ShadingRateMaps", TLArg(m_ShadingRateMaps.size(), "NumShadingRateMaps"));
                 for (auto it = m_ShadingRateMaps.begin(); it != m_ShadingRateMaps.end();) {
                     // Age the unused masks and garbage-collect them.
                     if (++it->second.Age > 100) {
                         TraceLoggingWriteTagged(local,
-                                                "VRSPresent_CollectGarbage",
+                                                "VRSPresent_Cleanup_ShadingRateMaps",
                                                 TLArg(it->first.Width, "TiledWidth"),
                                                 TLArg(it->first.Height, "TiledHeight"));
                         it = m_ShadingRateMaps.erase(it);
+                    } else {
+                        it++;
+                    }
+                }
+            }
+            {
+                std::unique_lock lock(m_CommandListDependenciesMutex);
+
+                TraceLoggingWriteTagged(local,
+                                        "VRSPresent_Cleanup_CommandListDependencies",
+                                        TLArg(m_CommandListDependencies.size(), "NumCommandListDependencies"));
+                for (auto it = m_CommandListDependencies.begin(); it != m_CommandListDependencies.end();) {
+                    // Age the unused command list dependencies and garbage-collect them.
+                    // An application may have started then abandoned a command list.
+                    if (++it->second.Age > 100) {
+                        TraceLoggingWriteTagged(local,
+                                                "VRSPresent_Cleanup_CommandListDependencies",
+                                                TLPArg(it->first, "CommandList"),
+                                                TLArg(it->second.FenceValue, "FenceValue"));
+                        it = m_CommandListDependencies.erase(it);
                     } else {
                         it++;
                     }
@@ -394,9 +425,8 @@ namespace {
         std::unordered_map<TiledResolution, ShadingRateMap, TiledResolution> m_ShadingRateMaps;
         uint64_t m_CurrentGeneration{0};
 
-        // TODO: Implement aging of entries (to cleanup orphaned command lists).
         std::mutex m_CommandListDependenciesMutex;
-        std::unordered_map<ID3D12CommandList*, uint64_t> m_CommandListDependencies;
+        std::unordered_map<ID3D12CommandList*, CommandListDependency> m_CommandListDependencies;
     };
 
 } // namespace

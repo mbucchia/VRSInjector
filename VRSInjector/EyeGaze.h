@@ -22,33 +22,17 @@
 
 #pragma once
 
-#include <cassert>
-#include <deque>
-#include <future>
-#include <memory>
-#include <optional>
-#include <unordered_map>
+namespace EyeGaze {
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#include <unknwn.h>
-#include <wrl.h>
+    struct IEyeGazeManager {
+        virtual ~IEyeGazeManager() = default;
 
-using Microsoft::WRL::ComPtr;
+        virtual void Update() = 0;
+        virtual bool GetGaze(float& X, float& Y, float& Distance) = 0;
 
-#include <traceloggingactivity.h>
-#include <traceloggingprovider.h>
+        virtual HWND GetHwnd() const = 0;
+    };
 
-#include <wil/resource.h>
+    std::unique_ptr<IEyeGazeManager> CreateTobiiEyeGazeManager(HWND Hwnd);
 
-#include <dxgi1_6.h>
-#include <d3d12.h>
-#include <d3dx12.h>
-
-#define FMT_HEADER_ONLY
-#include <fmt/format.h>
-
-#include <detours.h>
-
-#include <Tobii.GameIntegration.h>
+} // namespace EyeGaze

@@ -96,7 +96,7 @@
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(IntDir);$(ProjectDir)\fmt\include;$(ProjectDir)\d3dx12;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(IntDir);$(ProjectDir)\fmt\include;$(ProjectDir)\d3dx12;$(ProjectDir)\Tobii\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -105,7 +105,9 @@
       <ModuleDefinitionFile>module.def</ModuleDefinitionFile>
     </Link>
     <PostBuildEvent>
-      <Command>copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
+      <Command>copy $(ProjectDir)\Tobii\bin\$(PlatformTarget)\Tobii.GameIntegration.dll $(OutDir)
+
+copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
 $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe
 
 copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12DynamicIndexing\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
@@ -113,7 +115,7 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Dynam
 </Command>
     </PostBuildEvent>
     <PostBuildEvent>
-      <Message>Preparing TestApps...</Message>
+      <Message>Copying files...</Message>
     </PostBuildEvent>
     <FxCompile>
       <ShaderModel>6.0</ShaderModel>
@@ -134,7 +136,7 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Dynam
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(IntDir);$(ProjectDir)\fmt\include;$(ProjectDir)\d3dx12;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(IntDir);$(ProjectDir)\fmt\include;$(ProjectDir)\d3dx12;$(ProjectDir)\Tobii\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -145,7 +147,9 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Dynam
       <ModuleDefinitionFile>module.def</ModuleDefinitionFile>
     </Link>
     <PostBuildEvent>
-      <Command>copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
+      <Command>copy $(ProjectDir)\Tobii\bin\$(PlatformTarget)\Tobii.GameIntegration.dll $(OutDir)
+
+copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
 $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe
 
 copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12DynamicIndexing\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
@@ -153,7 +157,7 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Dynam
 </Command>
     </PostBuildEvent>
     <PostBuildEvent>
-      <Message>Preparing TestApps...</Message>
+      <Message>Copying files...</Message>
     </PostBuildEvent>
     <FxCompile>
       <ShaderModel>6.0</ShaderModel>
@@ -172,7 +176,7 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Dynam
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(IntDir);$(ProjectDir)\fmt\include;$(ProjectDir)\d3dx12;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(IntDir);$(ProjectDir)\fmt\include;$(ProjectDir)\d3dx12;$(ProjectDir)\Tobii\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -181,7 +185,9 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Dynam
       <ModuleDefinitionFile>module.def</ModuleDefinitionFile>
     </Link>
     <PostBuildEvent>
-      <Command>copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
+      <Command>copy $(ProjectDir)\Tobii\bin\$(PlatformTarget)\Tobii.GameIntegration.dll $(OutDir)
+
+copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
 $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe
 
 copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12DynamicIndexing\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
@@ -189,7 +195,7 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Dynam
 </Command>
     </PostBuildEvent>
     <PostBuildEvent>
-      <Message>Preparing TestApps...</Message>
+      <Message>Copying files...</Message>
     </PostBuildEvent>
     <FxCompile>
       <ShaderModel>6.0</ShaderModel>
@@ -210,7 +216,7 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Dynam
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(IntDir);$(ProjectDir)\fmt\include;$(ProjectDir)\d3dx12;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(IntDir);$(ProjectDir)\fmt\include;$(ProjectDir)\d3dx12;$(ProjectDir)\Tobii\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -221,7 +227,9 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Dynam
       <ModuleDefinitionFile>module.def</ModuleDefinitionFile>
     </Link>
     <PostBuildEvent>
-      <Command>copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
+      <Command>copy $(ProjectDir)\Tobii\bin\$(PlatformTarget)\Tobii.GameIntegration.dll $(OutDir)
+
+copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12Multithreading\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
 $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Multithreading.exe
 
 copy $(SolutionDir)\DirectX-Graphics-Samples\Samples\Desktop\D3D12DynamicIndexing\src\bin\$(Platform)\$(Configuration)\* $(OutDir)
@@ -229,7 +237,7 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Dynam
 </Command>
     </PostBuildEvent>
     <PostBuildEvent>
-      <Message>Preparing TestApps...</Message>
+      <Message>Copying files...</Message>
     </PostBuildEvent>
     <FxCompile>
       <ShaderModel>6.0</ShaderModel>
@@ -241,6 +249,7 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Dynam
   <ItemGroup>
     <ClInclude Include="Check.h" />
     <ClInclude Include="D3D12Utils.h" />
+    <ClInclude Include="EyeGaze.h" />
     <ClInclude Include="Injector.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="Tracing.h" />
@@ -248,6 +257,7 @@ $(SolutionDir)\Utils\setdll.exe /d:$(OutDir)VRSInjector.dll $(OutDir)\D3D12Dynam
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="EyeGaze.cpp" />
     <ClCompile Include="Hooks.cpp" />
     <ClCompile Include="Injection.cpp" />
     <ClCompile Include="pch.cpp">

@@ -4,3 +4,6 @@
 [submodule "DirectX-Graphics-Samples"]
 	path = DirectX-Graphics-Samples
 	url = https://github.com/microsoft/DirectX-Graphics-Samples.git
+[submodule "VRSInjector/Tobii"]
+	path = VRSInjector/Tobii
+	url = https://github.com/mbucchia/TobiiGameIntegration.git

@@ -22,12 +22,16 @@
 
 #pragma once
 
+#include "EyeGaze.h"
+
 namespace VRS {
 
     struct ICommandManager {
         virtual ~ICommandManager() = default;
 
-        virtual void Enable(ID3D12CommandList* pCommandList, const D3D12_VIEWPORT& Viewport) = 0;
+        virtual void Enable(ID3D12CommandList* pCommandList,
+                            const D3D12_VIEWPORT& Viewport,
+                            EyeGaze::IEyeGazeManager* eyeGazeManager = nullptr) = 0;
         virtual void Disable(ID3D12CommandList* pCommandList) = 0;
 
         virtual void SyncQueue(ID3D12CommandQueue* pCommandQueue,

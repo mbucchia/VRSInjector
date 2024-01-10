@@ -24,6 +24,7 @@
 
 #include "Check.h"
 #include "D3D12Utils.h"
+#include "EyeGaze.h"
 #include "Tracing.h"
 #include "VRS.h"
 
@@ -71,9 +72,9 @@ namespace {
     };
 
     struct CommandManager : ICommandManager {
-        // TODO: Implement aging of the entries.
         struct ShadingRateMap {
             uint64_t Generation{0};
+            unsigned int Age{0};
             ComPtr<ID3D12Resource> ShadingRateTexture;
             D3D12_CPU_DESCRIPTOR_HANDLE UAV;
             D3D12_GPU_DESCRIPTOR_HANDLE UAVDescriptor;
@@ -139,7 +140,9 @@ namespace {
             TraceLoggingWriteStop(local, "VRSCreate");
         }
 
-        void Enable(ID3D12CommandList* pCommandList, const D3D12_VIEWPORT& Viewport) override {
+        void Enable(ID3D12CommandList* pCommandList,
+                    const D3D12_VIEWPORT& Viewport,
+                    EyeGaze::IEyeGazeManager* eyeGazeManager = nullptr) override {
             TraceLocalActivity(local);
             TraceLoggingWriteStart(local, "VRSEnable", TLPArg(pCommandList, "CommandList"));
 
@@ -152,6 +155,10 @@ namespace {
                                         TLArg(shadingRateMapResolution.Width, "TiledWidth"),
                                         TLArg(shadingRateMapResolution.Height, "TiledHeight"));
 
+                float gazeX = 0.5f, gazeY = 0.5f, distance = 600.f /* mm */;
+                const bool isGazeAvailable = eyeGazeManager && eyeGazeManager->GetGaze(gazeX, gazeY, distance);
+                const float scaleFactor = std::clamp(distance / 600.f, 0.1f, 1.5f);
+
                 bool skipDependency = false;
                 ShadingRateMap shadingRateMap{};
                 {
@@ -159,16 +166,16 @@ namespace {
 
                     auto it = m_ShadingRateMaps.find(shadingRateMapResolution);
                     if (it != m_ShadingRateMaps.end()) {
-                        {
+                        if (isGazeAvailable) {
                             ShadingRateMap& updatableShadingRateMap = it->second;
 
                             if (updatableShadingRateMap.Generation != m_CurrentGeneration) {
-                                float GazeX, GazeY;
-                                GetEyeGaze(GazeX, GazeY);
-                                UpdateShadingRateMap(shadingRateMapResolution, updatableShadingRateMap, GazeX, GazeY);
+                                UpdateShadingRateMap(
+                                    shadingRateMapResolution, updatableShadingRateMap, gazeX, gazeY, scaleFactor);
                             }
                         }
 
+                        it->second.Age = 0;
                         shadingRateMap = it->second;
 
                         // No need to create a dependency on the GPU.
@@ -178,7 +185,7 @@ namespace {
 
                     } else {
                         // Request the shading rate map to be generated.
-                        shadingRateMap = RequestShadingRateMap(shadingRateMapResolution);
+                        shadingRateMap = RequestShadingRateMap(shadingRateMapResolution, gazeX, gazeY, scaleFactor);
                     }
 
                     ComPtr<ID3D12GraphicsCommandList5> vrsCommandList;
@@ -251,11 +258,31 @@ namespace {
         void Present() override {
             TraceLocalActivity(local);
             TraceLoggingWriteStart(local, "VRSPresent");
+
+            {
+                std::unique_lock lock(m_ShadingRateMapsMutex);
+
+                for (auto it = m_ShadingRateMaps.begin(); it != m_ShadingRateMaps.end();) {
+                    // Age the unused masks and garbage-collect them.
+                    if (++it->second.Age > 100) {
+                        TraceLoggingWriteTagged(local,
+                                                "VRSPresent_CollectGarbage",
+                                                TLArg(it->first.Width, "TiledWidth"),
+                                                TLArg(it->first.Height, "TiledHeight"));
+                        it = m_ShadingRateMaps.erase(it);
+                    } else {
+                        it++;
+                    }
+                }
+            }
+
             m_CurrentGeneration++;
+
             TraceLoggingWriteStop(local, "VRSPresent", TLArg(m_CurrentGeneration, "CurrentGeneration"));
         }
 
-        ShadingRateMap RequestShadingRateMap(const TiledResolution& Resolution) {
+        ShadingRateMap
+        RequestShadingRateMap(const TiledResolution& Resolution, float CenterX, float CenterY, float ScaleFactor) {
             TraceLocalActivity(local);
             TraceLoggingWriteStart(local,
                                    "VRSCreateShadingRateMap",
@@ -295,7 +322,8 @@ namespace {
             m_Device->CreateUnorderedAccessView(
                 newShadingRateMap.ShadingRateTexture.Get(), nullptr, &uavDesc, newShadingRateMap.UAV);
 
-            UpdateShadingRateMap(Resolution, newShadingRateMap, 0.5f, 0.5f, true /* IsFreshTexture */);
+            UpdateShadingRateMap(
+                Resolution, newShadingRateMap, CenterX, CenterY, ScaleFactor, true /* IsFreshTexture */);
 
             m_ShadingRateMaps.insert_or_assign(Resolution, newShadingRateMap);
 
@@ -309,6 +337,7 @@ namespace {
                                   ShadingRateMap& ShadingRateMap,
                                   float CenterX,
                                   float CenterY,
+                                  float ScaleFactor,
                                   bool IsFreshTexture = false) {
             // Prepare a command list.
             CommandList commandList = m_Context->GetCommandList();
@@ -352,25 +381,6 @@ namespace {
             ShadingRateMap.Generation = m_CurrentGeneration;
         }
 
-        void GetEyeGaze(float& GazeX, float& GazeY) {
-#if DEBUG_GAZE
-            RECT rect;
-            rect.left = 1;
-            rect.right = 999;
-            rect.top = 1;
-            rect.bottom = 999;
-            ClipCursor(&rect);
-
-            POINT pt{};
-            GetCursorPos(&pt);
-
-            GazeX = (float)pt.x / 1000.f;
-            GazeY = (float)pt.y / 1000.f;
-#else
-#error Not implemented
-#endif
-        }
-
         ComPtr<ID3D12Device> m_Device;
         UINT m_VRSTileSize{0};
 
@@ -384,6 +394,7 @@ namespace {
         std::unordered_map<TiledResolution, ShadingRateMap, TiledResolution> m_ShadingRateMaps;
         uint64_t m_CurrentGeneration{0};
 
+        // TODO: Implement aging of entries (to cleanup orphaned command lists).
         std::mutex m_CommandListDependenciesMutex;
         std::unordered_map<ID3D12CommandList*, uint64_t> m_CommandListDependencies;
     };

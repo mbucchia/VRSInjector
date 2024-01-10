@@ -23,6 +23,7 @@
 #include "pch.h"
 
 #include "Check.h"
+#include "EyeGaze.h"
 #include "Injector.h"
 #include "Tracing.h"
 #include "VRS.h"
@@ -30,6 +31,7 @@
 namespace {
 
     using namespace Injector;
+    using namespace EyeGaze;
 
     struct InjectionManager : IInjectionManager {
         struct Resolution {
@@ -55,7 +57,13 @@ namespace {
                 const Resolution& presentResolution = it->second.PresentResolution;
 
                 if (IsViewportEligible(presentResolution, Viewport)) {
-                    commandManager->Enable(pCommandList, Viewport);
+                    // Update the eye gaze input as late as possible.
+                    if (m_EyeGazeManager && !m_GazeUpdatedThisFrame) {
+                        m_EyeGazeManager->Update();
+                        m_GazeUpdatedThisFrame = true;
+                    }
+
+                    commandManager->Enable(pCommandList, Viewport, m_EyeGazeManager.get());
                 } else {
                     commandManager->Disable(pCommandList);
                 }
@@ -121,10 +129,32 @@ namespace {
                     m_Contexts.insert_or_assign(device.Get(), std::move(newContext));
                 }
 
+                // Try to attach an eye gaze manager.
+                ComPtr<IDXGISwapChain1> dxgiSwapchain1;
+                HWND hwnd{};
+                if (SUCCEEDED(pSwapChain->QueryInterface(dxgiSwapchain1.ReleaseAndGetAddressOf())) &&
+                    SUCCEEDED(dxgiSwapchain1->GetHwnd(&hwnd))) {
+                    TraceLoggingWriteTagged(local, "OnFramePresent_HasHWND", TLPArg(hwnd, "HWND"));
+
+                    // TODO: An application may present to multiple windows. We need to implement a mechanism to avoid
+                    // bouncing the tracker from a window to another, eg: use the window with the largest dimension, or
+                    // with the focus.
+                    if (!m_EyeGazeManager || m_EyeGazeManager->GetHwnd() != hwnd) {
+                        m_EyeGazeManager = CreateTobiiEyeGazeManager(hwnd);
+                    }
+                    m_EyeGazeManagerAging = 0;
+                    m_GazeUpdatedThisFrame = false;
+                }
+
             } else {
                 // This could just be a hybrid rendering app also using D3D11 for presentation. Log the error and move
                 // on.
                 TraceLoggingWriteTagged(local, "OnFramePresent_GetBuffer", TLArg(result, "Error"));
+            }
+
+            // Age the eye gaze manager and garbage-collect it when it is not being used.
+            if (++m_EyeGazeManagerAging > 100) {
+                m_EyeGazeManager.reset();
             }
 
             {
@@ -159,6 +189,10 @@ namespace {
 
         bool m_Enabled{true};
         std::unordered_map<ID3D12Device*, RenderingContext> m_Contexts;
+
+        std::unique_ptr<IEyeGazeManager> m_EyeGazeManager;
+        unsigned int m_EyeGazeManagerAging{0};
+        bool m_GazeUpdatedThisFrame{false};
     };
 
 } // namespace

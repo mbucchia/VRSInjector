@@ -95,9 +95,9 @@ namespace {
 
                 if (numHeadPoses) {
                     const auto& mostRecent = headPoses[numHeadPoses - 1];
-                    gazeData.Distance = std::sqrt(mostRecent.Position.X * mostRecent.Position.X +
-                                                  mostRecent.Position.Y * mostRecent.Position.Y +
-                                                  mostRecent.Position.Z * mostRecent.Position.Z);
+                    m_LastDistance = std::sqrt(mostRecent.Position.X * mostRecent.Position.X +
+                                               mostRecent.Position.Y * mostRecent.Position.Y +
+                                               mostRecent.Position.Z * mostRecent.Position.Z);
                 }
 
                 // Update the cache if we have enough data.
@@ -105,6 +105,7 @@ namespace {
                     const auto& mostRecent = gazePoints[numGazePoints - 1];
                     gazeData.GazeX = mostRecent.X;
                     gazeData.GazeY = mostRecent.Y;
+                    gazeData.Distance = m_LastDistance;
 
                     gazeData.Timepoint = std::chrono::steady_clock::now();
 
@@ -143,6 +144,7 @@ namespace {
         const tobiiAPI m_Api;
         const HWND m_Hwnd;
         std::optional<GazeData> m_GazeData;
+        float m_LastDistance{600.f};
     };
 
 } // namespace

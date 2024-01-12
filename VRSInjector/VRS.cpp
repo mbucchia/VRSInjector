@@ -166,7 +166,7 @@ namespace {
                 // When eye gaze becomes unavailable, we revert to fixed foveation, and we need to perform one last
                 // update of the shading rate map with the default values above.
                 const bool isEyeGazeAvailable = m_UsingEyeGaze || wasUsingEyeGaze;
-                const float scaleFactor = std::clamp(distance / 600.f, 0.1f, 1.5f);
+                const float scaleFactor = std::clamp(distance / 600.f, 0.5f, 1.5f);
 
                 bool skipDependency = false;
                 ShadingRateMap shadingRateMap{};
@@ -393,8 +393,8 @@ namespace {
             constants.CenterX = CenterX * Resolution.Width;
             constants.CenterY = CenterY * Resolution.Height;
             // TODO: Customize these.
-            constants.InnerRing = 0.25f * Resolution.Height;
-            constants.OuterRing = 0.8f * Resolution.Height;
+            constants.InnerRing = ScaleFactor * 0.35f * Resolution.Height;
+            constants.OuterRing = ScaleFactor * 0.8f * Resolution.Height;
             constants.Rate1x1 = D3D12_SHADING_RATE_1X1;
             constants.RateMedium = D3D12_SHADING_RATE_2X2;
             constants.RateLow = D3D12_SHADING_RATE_4X4;

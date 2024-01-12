@@ -117,6 +117,10 @@ namespace D3D12Utils {
             return m_CompletionFence.Get();
         }
 
+        ID3D12CommandQueue* GetCommandQueue() const {
+            return m_CommandQueue.Get();
+        }
+
       private:
         ComPtr<ID3D12Device> m_Device;
         ComPtr<ID3D12CommandQueue> m_CommandQueue;

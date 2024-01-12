@@ -79,6 +79,11 @@ namespace {
             D3D12_CPU_DESCRIPTOR_HANDLE UAV;
             D3D12_GPU_DESCRIPTOR_HANDLE UAVDescriptor;
             uint64_t CompletedFenceValue{0};
+
+            ComPtr<ID3D12QueryHeap> QueryHeap;
+            ComPtr<ID3D12Resource> QueryReadbackBuffer;
+            bool TimerStarted{false};
+            bool DumpedDuration{false};
         };
 
         struct CommandListDependency {
@@ -187,8 +192,12 @@ namespace {
                         it->second.Age = 0;
                         shadingRateMap = it->second;
 
-                        // No need to create a dependency on the GPU.
-                        skipDependency = m_Context->IsCommandListCompleted(shadingRateMap.CompletedFenceValue);
+                        if (m_Context->IsCommandListCompleted(shadingRateMap.CompletedFenceValue)) {
+                            DumpStatistics(it->second);
+
+                            // No need to create a dependency on the GPU.
+                            skipDependency = true;
+                        }
 
                         TraceLoggingWriteTagged(local, "VRSEnable_Reuse", TLArg(!skipDependency, "NeedDependency"));
 
@@ -379,6 +388,40 @@ namespace {
             ID3D12DescriptorHeap* heaps[] = {m_HeapForUAVs->GetDescriptorHeap()};
             commandList.Commands->SetDescriptorHeaps(ARRAYSIZE(heaps), heaps);
 
+            if (IsTraceEnabled()) {
+                // Dump previous statistics if there wasn't another opportunity.
+                DumpStatistics(ShadingRateMap);
+
+                // Create a query heap to make timers. Do it on demand to avoid wasting resources when tracing is not
+                // used.
+                if (!ShadingRateMap.QueryHeap) {
+                    D3D12_QUERY_HEAP_DESC heapDesc{};
+                    heapDesc.Count = 2;
+                    heapDesc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+                    CHECK_HRCMD(m_Device->CreateQueryHeap(
+                        &heapDesc, IID_PPV_ARGS(ShadingRateMap.QueryHeap.ReleaseAndGetAddressOf())));
+                    ShadingRateMap.QueryHeap->SetName(L"Timestamp Query Heap");
+
+                    const D3D12_HEAP_PROPERTIES readbackHeap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK);
+                    D3D12_RESOURCE_DESC readbackDesc{};
+                    readbackDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+                    readbackDesc.Width = heapDesc.Count * sizeof(uint64_t);
+                    readbackDesc.Height = readbackDesc.DepthOrArraySize = readbackDesc.MipLevels =
+                        readbackDesc.SampleDesc.Count = 1;
+                    readbackDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+                    CHECK_HRCMD(m_Device->CreateCommittedResource(
+                        &readbackHeap,
+                        D3D12_HEAP_FLAG_NONE,
+                        &readbackDesc,
+                        D3D12_RESOURCE_STATE_COPY_DEST,
+                        nullptr,
+                        IID_PPV_ARGS(ShadingRateMap.QueryReadbackBuffer.ReleaseAndGetAddressOf())));
+                    ShadingRateMap.QueryReadbackBuffer->SetName(L"Query Readback Buffer");
+                }
+
+                commandList.Commands->EndQuery(ShadingRateMap.QueryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
+            }
+
             if (!IsFreshTexture) {
                 // Transition to UAV state for the compute shader.
                 const D3D12_RESOURCE_BARRIER barrier =
@@ -412,8 +455,39 @@ namespace {
                                                      D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE);
             commandList.Commands->ResourceBarrier(1, &barrier);
 
+            if (IsTraceEnabled() && ShadingRateMap.QueryHeap) {
+                commandList.Commands->EndQuery(ShadingRateMap.QueryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
+                commandList.Commands->ResolveQueryData(ShadingRateMap.QueryHeap.Get(),
+                                                       D3D12_QUERY_TYPE_TIMESTAMP,
+                                                       0,
+                                                       2,
+                                                       ShadingRateMap.QueryReadbackBuffer.Get(),
+                                                       0);
+                ShadingRateMap.TimerStarted = true;
+                ShadingRateMap.DumpedDuration = false;
+            }
+
             ShadingRateMap.CompletedFenceValue = m_Context->SubmitCommandList(commandList);
             ShadingRateMap.Generation = m_CurrentGeneration;
+        }
+
+        void DumpStatistics(ShadingRateMap& ShadingRateMap) {
+            if (ShadingRateMap.TimerStarted && IsTraceEnabled() && !ShadingRateMap.DumpedDuration &&
+                ShadingRateMap.QueryHeap) {
+                uint64_t gpuTickFrequency;
+                if (SUCCEEDED(m_Context->GetCommandQueue()->GetTimestampFrequency(&gpuTickFrequency))) {
+                    uint64_t* mappedBuffer;
+                    D3D12_RANGE range{0, 2 * sizeof(uint64_t)};
+                    CHECK_HRCMD(
+                        ShadingRateMap.QueryReadbackBuffer->Map(0, &range, reinterpret_cast<void**>(&mappedBuffer)));
+                    const uint64_t duration = ((mappedBuffer[1] - mappedBuffer[0]) * 1000000) / gpuTickFrequency;
+                    ShadingRateMap.QueryReadbackBuffer->Unmap(0, nullptr);
+
+                    TraceLoggingWrite(
+                        Tracing::g_traceProvider, "VRSCreateShadingRateMap", TLArg(duration, "GpuDuration"));
+                }
+            }
+            ShadingRateMap.DumpedDuration = true;
         }
 
         ComPtr<ID3D12Device> m_Device;
